@@ -512,6 +512,65 @@
     .edit-link-row .el-title { flex: 1; font-weight: 600; color: var(--gray-700); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .edit-link-row .el-del { cursor: pointer; color: var(--danger); padding: 0 4px; font-size: 13px; flex-shrink: 0; }
 
+    /* ===== VIEW TOGGLE ===== */
+    .view-toggle {
+      display: flex; gap: 6px; background: var(--gray-100); border-radius: 10px; padding: 4px;
+    }
+    .vt-btn {
+      padding: 5px 18px; border-radius: 7px; border: none; font-size: 13px; cursor: pointer;
+      background: transparent; color: var(--gray-500); transition: .15s; font-weight: 500;
+    }
+    .vt-btn.active { background: #fff; color: var(--primary); font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+
+    /* ===== MONTH CALENDAR ===== */
+    .month-cal {
+      background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+    }
+    .mc-weekdays {
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      background: var(--primary); color: #fff; font-size: 12px; font-weight: 600;
+    }
+    .mc-weekdays div { text-align: center; padding: 8px 0; }
+    .mc-grid {
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      border-left: 1px solid var(--gray-100); border-top: 1px solid var(--gray-100);
+    }
+    .mc-cell {
+      min-height: 100px; border-right: 1px solid var(--gray-100); border-bottom: 1px solid var(--gray-100);
+      padding: 4px; display: flex; flex-direction: column;
+    }
+    .mc-cell.other-month { background: var(--gray-50); }
+    .mc-cell.today-cell { background: #eff6ff; }
+    .mc-day-num {
+      font-size: 13px; font-weight: 600; color: var(--gray-500);
+      width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+      border-radius: 50%; margin-bottom: 2px; cursor: pointer; flex-shrink: 0;
+      transition: .15s;
+    }
+    .mc-day-num:hover { background: var(--primary-light); color: var(--primary); }
+    .mc-cell.today-cell .mc-day-num {
+      background: var(--primary); color: #fff;
+    }
+    .mc-cell.other-month .mc-day-num { color: var(--gray-300); }
+    .mc-tasks { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
+    .mc-task {
+      font-size: 11px; border-radius: 3px; padding: 1px 5px; line-height: 1.5;
+      cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      transition: filter .1s;
+    }
+    .mc-task:hover { filter: brightness(.92); }
+    .mc-task.done { opacity: .45; text-decoration: line-through; }
+    .mc-task.p-high { background: #fee2e2; color: #991b1b; }
+    .mc-task.p-mid  { background: #fef3c7; color: #92400e; }
+    .mc-task.p-low  { background: #d1fae5; color: #065f46; }
+    .mc-task.p-info { background: #dbeafe; color: #1e40af; }
+    .mc-more { font-size: 11px; color: var(--primary); cursor: pointer; padding: 1px 4px; }
+    .mc-add {
+      font-size: 11px; color: var(--gray-400); cursor: pointer; text-align: center;
+      padding: 2px; border-radius: 3px; transition: .15s; flex-shrink: 0;
+    }
+    .mc-add:hover { background: var(--primary-light); color: var(--primary); }
+
     /* ===== MILESTONE TRACK ===== */
     .ms-track {
       display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin-top: 4px;
@@ -732,13 +791,32 @@
   <!-- ===== PAGE: WEEKLY PLAN ===== -->
   <div class="page" id="page-weekly">
     <div class="week-summary" id="week-summary"></div>
+    <!-- 导航栏 -->
     <div class="week-nav">
-      <button class="wn-btn" onclick="changeWeek(-1)">◀ 上一周</button>
+      <button class="wn-btn" id="nav-prev" onclick="calPrev()">◀ 上一</button>
       <div class="wn-label" id="week-label"></div>
-      <button class="wn-btn wn-today" onclick="goToday()">回到本周</button>
-      <button class="wn-btn" onclick="changeWeek(1)">下一周 ▶</button>
+      <button class="wn-btn wn-today" onclick="calToday()">回到今天</button>
+      <button class="wn-btn" id="nav-next" onclick="calNext()">下一 ▶</button>
+      <!-- 视图切换 -->
+      <div class="view-toggle">
+        <button class="vt-btn" id="vt-week" onclick="setCalView('week')">📋 周</button>
+        <button class="vt-btn active" id="vt-month" onclick="setCalView('month')">📅 月</button>
+      </div>
     </div>
-    <div class="week-grid" id="week-grid"></div>
+    <!-- 周视图 -->
+    <div id="week-view">
+      <div class="week-grid" id="week-grid"></div>
+    </div>
+    <!-- 月历视图 -->
+    <div id="month-view" style="display:none">
+      <div class="month-cal">
+        <div class="mc-weekdays">
+          <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div>
+          <div style="color:#fca5a5">六</div><div style="color:#fca5a5">日</div>
+        </div>
+        <div class="mc-grid" id="month-grid"></div>
+      </div>
+    </div>
   </div>
 
   <div class="modal-overlay" id="task-modal">
@@ -1332,15 +1410,38 @@ let weeklyTasks = [];
 let currentWeekOffset = 0;
 let addTaskDate = null;
 let weeklyLoaded = false;
+let calView = "month"; // "week" | "month"
+let monthYear = new Date().getFullYear();
+let monthMonth = new Date().getMonth(); // 0-based
 
 async function initWeekly() {
   if (!weeklyLoaded) {
     weeklyTasks = await loadWeeklyTasks();
     weeklyLoaded = true;
   }
-  renderWeekly();
+  renderCal();
 }
 
+// ===== 视图切换 =====
+function setCalView(v) {
+  calView = v;
+  document.getElementById("vt-week").classList.toggle("active", v === "week");
+  document.getElementById("vt-month").classList.toggle("active", v === "month");
+  document.getElementById("week-view").style.display = v === "week" ? "" : "none";
+  document.getElementById("month-view").style.display = v === "month" ? "" : "none";
+  renderCal();
+}
+
+function calPrev() { if (calView === "week") { currentWeekOffset--; renderCal(); } else { monthMonth--; if (monthMonth < 0) { monthMonth = 11; monthYear--; } renderCal(); } }
+function calNext() { if (calView === "week") { currentWeekOffset++; renderCal(); } else { monthMonth++; if (monthMonth > 11) { monthMonth = 0; monthYear++; } renderCal(); } }
+function calToday() { currentWeekOffset = 0; monthYear = new Date().getFullYear(); monthMonth = new Date().getMonth(); renderCal(); }
+
+function renderCal() {
+  if (calView === "week") renderWeekly();
+  else renderMonthly();
+}
+
+// ===== 周视图 =====
 function getWeekDates(offset) {
   const now = new Date();
   const day = now.getDay();
@@ -1362,18 +1463,8 @@ function renderWeekly() {
   document.getElementById("week-label").textContent =
     `${months}  第 ${getWeekNum(dates[0])} 周（${dates[0].getDate()}日 — ${dates[6].getDate()}日）`;
 
-  const weekKeys = dates.map(d => dateKey(d));
-  const weekAll = weeklyTasks.filter(t => weekKeys.includes(t.date));
-  const done = weekAll.filter(t => t.done).length;
-  const total = weekAll.length;
-  const high = weekAll.filter(t => t.priority === "p-high" && !t.done).length;
-
-  document.getElementById("week-summary").innerHTML = `
-    <div class="stat-card"><div class="stat-icon" style="background:#e8efff">📋</div><div class="stat-info"><div class="val" style="color:var(--primary)">${total}</div><div class="lbl">本周事项</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:#d1fae5">✅</div><div class="stat-info"><div class="val" style="color:var(--success)">${done}</div><div class="lbl">已完成</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:#fee2e2">🔴</div><div class="stat-info"><div class="val" style="color:var(--danger)">${high}</div><div class="lbl">紧急待办</div></div></div>
-    <div class="stat-card"><div class="stat-icon" style="background:#fef3c7">📈</div><div class="stat-info"><div class="val" style="color:var(--warning)">${total ? Math.round(done/total*100) : 0}%</div><div class="lbl">完成率</div></div></div>
-  `;
+  // 统计当月所有任务（月视图和周视图都用同一个统计）
+  renderWeeklySummary(weeklyTasks.filter(t => dates.map(d => dateKey(d)).includes(t.date)));
 
   const grid = document.getElementById("week-grid");
   grid.innerHTML = dates.map((d, i) => {
@@ -1398,6 +1489,67 @@ function renderWeekly() {
   }).join("");
 }
 
+// ===== 月历视图 =====
+function renderMonthly() {
+  const y = monthYear, m = monthMonth;
+  const label = `${y}年 ${m+1}月`;
+  document.getElementById("week-label").textContent = label;
+
+  // 本月所有任务
+  const prefix = `${y}-${String(m+1).padStart(2,"0")}`;
+  const monthTasks = weeklyTasks.filter(t => t.date && t.date.startsWith(prefix));
+  renderWeeklySummary(monthTasks);
+
+  // 计算月历格子
+  const firstDay = new Date(y, m, 1);
+  const lastDay = new Date(y, m+1, 0);
+  const today = dateKey(new Date());
+  // 周一为第一列
+  let startDow = firstDay.getDay(); // 0=周日
+  startDow = startDow === 0 ? 6 : startDow - 1; // 转换为周一=0
+  const totalCells = Math.ceil((startDow + lastDay.getDate()) / 7) * 7;
+
+  let html = "";
+  for (let i = 0; i < totalCells; i++) {
+    const dayNum = i - startDow + 1;
+    const isCurrentMonth = dayNum >= 1 && dayNum <= lastDay.getDate();
+    const dateStr = isCurrentMonth
+      ? `${y}-${String(m+1).padStart(2,"0")}-${String(dayNum).padStart(2,"0")}`
+      : null;
+    const isToday = dateStr === today;
+    const dow = i % 7; // 0=周一 ... 6=周日
+    const isWeekend = dow >= 5;
+    const dayTasks = dateStr ? weeklyTasks.filter(t => t.date === dateStr).sort((a,b)=>(a.time||"").localeCompare(b.time||"")) : [];
+    const showMax = 3;
+    const tasksHtml = dayTasks.slice(0, showMax).map(t => `
+      <div class="mc-task ${t.priority} ${t.done ? "done" : ""}" title="${t.title}" onclick="toggleTask(${t.id})">
+        ${t.time ? `<b>${t.time}</b> ` : ""}${t.title}
+      </div>`).join("");
+    const moreHtml = dayTasks.length > showMax
+      ? `<div class="mc-more">+${dayTasks.length - showMax} 更多</div>`
+      : "";
+    const numStyle = isWeekend && !isToday ? "color:#ef4444" : "";
+    html += `<div class="mc-cell${!isCurrentMonth ? " other-month" : ""}${isToday ? " today-cell" : ""}">
+      <div class="mc-day-num" style="${numStyle}" ${dateStr ? `onclick="openTaskModal('${dateStr}')"` : ""}>${isCurrentMonth ? dayNum : ""}</div>
+      <div class="mc-tasks">${tasksHtml}${moreHtml}</div>
+      ${isCurrentMonth ? `<div class="mc-add" onclick="openTaskModal('${dateStr}')">＋</div>` : ""}
+    </div>`;
+  }
+  document.getElementById("month-grid").innerHTML = html;
+}
+
+function renderWeeklySummary(tasks) {
+  const total = tasks.length;
+  const done = tasks.filter(t => t.done).length;
+  const high = tasks.filter(t => t.priority === "p-high" && !t.done).length;
+  document.getElementById("week-summary").innerHTML = `
+    <div class="stat-card"><div class="stat-icon" style="background:#e8efff">📋</div><div class="stat-info"><div class="val" style="color:var(--primary)">${total}</div><div class="lbl">${calView==="month"?"本月事项":"本周事项"}</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#d1fae5">✅</div><div class="stat-info"><div class="val" style="color:var(--success)">${done}</div><div class="lbl">已完成</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#fee2e2">🔴</div><div class="stat-info"><div class="val" style="color:var(--danger)">${high}</div><div class="lbl">紧急待办</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#fef3c7">📈</div><div class="stat-info"><div class="val" style="color:var(--warning)">${total ? Math.round(done/total*100) : 0}%</div><div class="lbl">完成率</div></div></div>
+  `;
+}
+
 function getWeekNum(d) {
   const start = new Date(d.getFullYear(), 0, 1);
   return Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7);
@@ -1411,14 +1563,14 @@ async function toggleTask(id) {
   if (!t) return;
   t.done = !t.done;
   await updateWeeklyTaskDone(id, t.done);
-  renderWeekly();
+  renderCal();
 }
 
 async function deleteTask(id) {
   if (!confirm("确认删除该日程？")) return;
   await deleteWeeklyTaskDB(id);
   weeklyTasks = weeklyTasks.filter(x => x.id !== id);
-  renderWeekly();
+  renderCal();
 }
 
 function openTaskModal(dateStr) {
@@ -1455,7 +1607,7 @@ async function confirmAddTask() {
     location: document.getElementById("t-location").value.trim(), done: false
   });
   closeTaskModal();
-  renderWeekly();
+  renderCal();
 }
 
 // ===== 在线文档管理 =====
