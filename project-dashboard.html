@@ -1,0 +1,1768 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>项目看板 · 金蝶云星空实施管理</title>
+  <style>
+    :root {
+      --primary: #1a56db;
+      --primary-light: #e8efff;
+      --success: #0e9f6e;
+      --warning: #e3a008;
+      --danger: #e02424;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-300: #d1d5db;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-700: #374151;
+      --gray-900: #111827;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.06);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f0f4ff;
+      color: var(--gray-900);
+      min-height: 100vh;
+    }
+
+    /* ===== LOADING OVERLAY ===== */
+    #loading-overlay {
+      position: fixed; inset: 0; background: rgba(240,244,255,.92);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 9999; gap: 16px;
+    }
+    .loading-spinner {
+      width: 40px; height: 40px; border: 3px solid var(--gray-200);
+      border-top-color: var(--primary); border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 14px; color: var(--gray-500); }
+
+    /* ===== SYNC INDICATOR ===== */
+    #sync-indicator {
+      position: fixed; bottom: 18px; right: 18px;
+      background: #fff; border-radius: 20px; padding: 6px 14px;
+      box-shadow: var(--shadow); font-size: 12px; color: var(--gray-500);
+      display: flex; align-items: center; gap: 6px;
+      transition: opacity .3s; opacity: 0; pointer-events: none; z-index: 100;
+    }
+    #sync-indicator.show { opacity: 1; }
+    #sync-indicator .si-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+    #sync-indicator.syncing .si-dot { background: var(--warning); animation: pulse 1s infinite; }
+    #sync-indicator.error .si-dot { background: var(--danger); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ===== TOP NAV ===== */
+    .topbar {
+      background: linear-gradient(135deg, #1a3a8f 0%, #1a56db 100%);
+      color: #fff;
+      padding: 0 28px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(26,86,219,.3);
+    }
+    .topbar .logo { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 700; }
+    .topbar .logo span { opacity: .75; font-weight: 400; font-size: 13px; }
+    .topbar .actions { display: flex; align-items: center; gap: 12px; }
+    .btn-add {
+      background: rgba(255,255,255,.15);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.3);
+      border-radius: 8px;
+      padding: 6px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: .2s;
+    }
+    .btn-add:hover { background: rgba(255,255,255,.25); }
+
+    /* ===== TABS ===== */
+    .tabs {
+      background: #fff;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 0 28px;
+      display: flex;
+      gap: 4px;
+    }
+    .tab {
+      padding: 14px 20px;
+      font-size: 14px;
+      color: var(--gray-500);
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      transition: .2s;
+      user-select: none;
+    }
+    .tab:hover { color: var(--primary); }
+    .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+    /* ===== MAIN ===== */
+    .main { padding: 24px 28px; max-width: 1400px; margin: 0 auto; }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ===== STATS CARDS ===== */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: #fff;
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .stat-icon {
+      width: 48px; height: 48px;
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+    .stat-info .val { font-size: 28px; font-weight: 700; line-height: 1.1; }
+    .stat-info .lbl { font-size: 13px; color: var(--gray-500); margin-top: 3px; }
+    .stat-info .sub { font-size: 12px; margin-top: 4px; }
+
+    /* ===== PROJECT LIST ===== */
+    .section-title {
+      font-size: 15px; font-weight: 600;
+      margin-bottom: 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .section-title .more { font-size: 12px; color: var(--primary); cursor: pointer; font-weight: 400; }
+    .project-table {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 12px;
+      color: var(--gray-500);
+      font-weight: 600;
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+      text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+    tbody tr { border-bottom: 1px solid var(--gray-100); transition: .15s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--gray-50); }
+    tbody td { padding: 14px 16px; font-size: 13.5px; vertical-align: middle; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 100px; font-size: 12px; font-weight: 500;
+    }
+    .badge-green { background: #d1fae5; color: #065f46; }
+    .badge-blue { background: #dbeafe; color: #1e40af; }
+    .badge-yellow { background: #fef3c7; color: #92400e; }
+    .badge-red { background: #fee2e2; color: #991b1b; }
+    .badge-gray { background: var(--gray-100); color: var(--gray-700); }
+
+    .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    .dot-green { background: var(--success); }
+    .dot-yellow { background: var(--warning); }
+    .dot-red { background: var(--danger); }
+    .dot-blue { background: var(--primary); }
+    .dot-gray { background: var(--gray-400); }
+
+    /* ===== PROGRESS BAR ===== */
+    .prog-wrap { display: flex; align-items: center; gap: 10px; }
+    .prog-bar { flex: 1; height: 7px; background: var(--gray-200); border-radius: 4px; overflow: hidden; }
+    .prog-fill { height: 100%; border-radius: 4px; transition: width .5s; }
+    .prog-lbl { font-size: 12px; color: var(--gray-500); width: 32px; text-align: right; }
+
+    /* ===== PHASE TIMELINE ===== */
+    .phase-row { display: flex; gap: 6px; }
+    .phase-seg {
+      flex: 1; height: 8px; border-radius: 4px;
+      position: relative; cursor: pointer;
+      transition: .15s;
+    }
+    .phase-seg:hover { transform: scaleY(1.4); }
+    .phase-seg.done { background: var(--success); }
+    .phase-seg.active { background: var(--primary); animation: pulsebar 1.5s infinite; }
+    .phase-seg.pending { background: var(--gray-200); }
+    .phase-seg.warn { background: var(--warning); }
+    @keyframes pulsebar {
+      0%,100% { opacity: 1; } 50% { opacity: .6; }
+    }
+
+    /* ===== RISK TAGS ===== */
+    .risk-tag {
+      font-size: 11px; padding: 2px 7px; border-radius: 4px; margin: 2px;
+      display: inline-block;
+    }
+
+    /* ===== PROGRESS PAGE ===== */
+    .progress-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .card {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--gray-100);
+      font-size: 14px;
+      font-weight: 600;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .card-body { padding: 20px; }
+
+    .timeline { position: relative; }
+    .timeline::before {
+      content: ''; position: absolute; left: 14px; top: 0; bottom: 0;
+      width: 2px; background: var(--gray-200);
+    }
+    .tl-item { display: flex; gap: 16px; margin-bottom: 20px; position: relative; }
+    .tl-dot {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; flex-shrink: 0; z-index: 1;
+      border: 2px solid #fff;
+    }
+    .tl-dot.done { background: var(--success); color: #fff; }
+    .tl-dot.active { background: var(--primary); color: #fff; }
+    .tl-dot.pending { background: var(--gray-200); color: var(--gray-500); }
+    .tl-content { flex: 1; }
+    .tl-title { font-size: 13px; font-weight: 600; }
+    .tl-sub { font-size: 12px; color: var(--gray-500); margin-top: 3px; }
+    .tl-bar { margin-top: 6px; }
+
+    /* ===== ALERT BANNER ===== */
+    .alert-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+    .alert-item {
+      border-radius: 8px; padding: 12px 16px;
+      display: flex; align-items: flex-start; gap: 10px; font-size: 13px;
+    }
+    .alert-item.red { background: #fff5f5; border-left: 3px solid var(--danger); }
+    .alert-item.yellow { background: #fffbeb; border-left: 3px solid var(--warning); }
+    .alert-item .ai { flex-shrink: 0; font-size: 16px; margin-top: 1px; }
+    .alert-item .atxt .ttl { font-weight: 600; }
+    .alert-item .atxt .desc { color: var(--gray-500); margin-top: 2px; font-size: 12px; }
+
+    /* ===== GANTT ===== */
+    .gantt-wrap { overflow-x: auto; }
+    .gantt-table { width: 100%; border-collapse: collapse; min-width: 700px; }
+    .gantt-table td, .gantt-table th { padding: 8px 10px; font-size: 12px; }
+    .gantt-table thead th { background: var(--gray-50); color: var(--gray-500); border-bottom: 1px solid var(--gray-200); text-align: center; }
+    .gantt-table tbody tr:nth-child(even) { background: var(--gray-50); }
+    .gantt-block {
+      height: 20px; border-radius: 4px; display: block; margin: 0 auto;
+      position: relative;
+    }
+    .gantt-block.done { background: var(--success); }
+    .gantt-block.active { background: var(--primary); }
+    .gantt-block.pending { background: var(--gray-300); }
+    .gantt-block.warn { background: var(--warning); }
+
+    /* ===== PIE / DONUT ===== */
+    .donut-wrap { display: flex; align-items: center; gap: 20px; }
+    .donut-legend { display: flex; flex-direction: column; gap: 8px; }
+    .leg-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+    .leg-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+    /* ===== MODAL ===== */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.4); z-index: 1000;
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: #fff; border-radius: 16px; width: 540px; max-width: 95vw;
+      box-shadow: 0 20px 60px rgba(0,0,0,.2);
+      animation: slideIn .2s ease;
+    }
+    @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } }
+    .modal-header {
+      padding: 20px 24px; border-bottom: 1px solid var(--gray-200);
+      font-size: 16px; font-weight: 700;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .modal-close { cursor: pointer; color: var(--gray-400); font-size: 20px; line-height: 1; }
+    .modal-close:hover { color: var(--gray-700); }
+    .modal-body { padding: 24px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group.full { grid-column: 1 / -1; }
+    .form-group label { font-size: 12px; font-weight: 600; color: var(--gray-700); }
+    .form-group input, .form-group select, .form-group textarea {
+      border: 1px solid var(--gray-300); border-radius: 8px;
+      padding: 8px 12px; font-size: 13px; font-family: inherit;
+      transition: .15s; outline: none;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,86,219,.1);
+    }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--gray-200); display: flex; justify-content: flex-end; gap: 10px; }
+    .btn-cancel { padding: 8px 18px; border-radius: 8px; border: 1px solid var(--gray-300); background: #fff; font-size: 13px; cursor: pointer; }
+    .btn-primary { padding: 8px 18px; border-radius: 8px; border: none; background: var(--primary); color: #fff; font-size: 13px; cursor: pointer; font-weight: 600; }
+    .btn-primary:hover { background: #1648c2; }
+
+    .avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff; display: inline-flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+    }
+    .pm-cell { display: flex; align-items: center; gap: 8px; }
+
+    @media (max-width: 900px) {
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .progress-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ===== DOCS PAGE ===== */
+    .docs-toolbar {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .docs-toolbar input, .docs-toolbar select {
+      border: 1px solid var(--gray-300); border-radius: 8px;
+      padding: 7px 12px; font-size: 13px; font-family: inherit; outline: none;
+      transition: .15s;
+    }
+    .docs-toolbar input:focus, .docs-toolbar select:focus {
+      border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,86,219,.1);
+    }
+    .docs-toolbar input { flex: 1; min-width: 160px; }
+    .upload-zone {
+      border: 2px dashed var(--gray-300); border-radius: var(--radius);
+      padding: 32px; text-align: center; cursor: pointer;
+      transition: .2s; margin-bottom: 20px; background: #fff;
+    }
+    .upload-zone:hover, .upload-zone.drag { border-color: var(--primary); background: var(--primary-light); }
+    .upload-zone .uz-icon { font-size: 36px; margin-bottom: 8px; }
+    .upload-zone .uz-title { font-size: 14px; font-weight: 600; color: var(--gray-700); }
+    .upload-zone .uz-sub { font-size: 12px; color: var(--gray-400); margin-top: 4px; }
+    .file-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px;
+    }
+    .file-card {
+      background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 16px; display: flex; flex-direction: column; gap: 10px;
+      transition: .15s; position: relative; overflow: hidden;
+    }
+    .file-card:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,.1); }
+    .file-card .fc-icon { font-size: 32px; }
+    .file-card .fc-name {
+      font-size: 13px; font-weight: 600; word-break: break-all;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .file-card .fc-meta { font-size: 11px; color: var(--gray-400); }
+    .file-card .fc-project {
+      font-size: 11px; background: var(--primary-light); color: var(--primary);
+      padding: 2px 8px; border-radius: 100px; display: inline-block;
+    }
+    .file-card .fc-actions { display: flex; gap: 6px; margin-top: auto; }
+    .fc-btn {
+      flex: 1; padding: 5px 0; border-radius: 6px; border: 1px solid var(--gray-200);
+      font-size: 12px; cursor: pointer; background: var(--gray-50); transition: .15s;
+      text-align: center;
+    }
+    .fc-btn:hover { background: var(--gray-100); }
+    .fc-btn.del { color: var(--danger); }
+    .fc-btn.del:hover { background: #fee2e2; border-color: #fca5a5; }
+    .docs-empty {
+      text-align: center; padding: 60px 20px; color: var(--gray-400); font-size: 14px;
+    }
+    .docs-stats {
+      display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .ds-item {
+      background: #fff; border-radius: 10px; padding: 12px 18px;
+      box-shadow: var(--shadow); font-size: 13px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .ds-val { font-size: 20px; font-weight: 700; }
+
+    /* ===== WEEKLY PLAN PAGE ===== */
+    .week-nav {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+    }
+    .week-nav .wn-label {
+      font-size: 15px; font-weight: 700; flex: 1; text-align: center; color: var(--gray-900);
+    }
+    .wn-btn {
+      background: #fff; border: 1px solid var(--gray-200); border-radius: 8px;
+      padding: 6px 14px; font-size: 13px; cursor: pointer; transition: .15s;
+    }
+    .wn-btn:hover { background: var(--gray-100); }
+    .wn-today {
+      background: var(--primary); color: #fff; border-color: var(--primary);
+    }
+    .wn-today:hover { background: #1648c2; }
+    .week-grid {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-bottom: 20px;
+    }
+    .day-col {
+      background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
+      min-height: 260px; display: flex; flex-direction: column; overflow: hidden;
+    }
+    .day-col.today { border: 2px solid var(--primary); }
+    .day-header {
+      padding: 10px 10px 8px; text-align: center; border-bottom: 1px solid var(--gray-100);
+    }
+    .day-header .dh-week { font-size: 11px; color: var(--gray-400); }
+    .day-header .dh-num {
+      font-size: 22px; font-weight: 700; line-height: 1.1; color: var(--gray-700);
+    }
+    .day-col.today .dh-num {
+      background: var(--primary); color: #fff;
+      width: 34px; height: 34px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 17px;
+    }
+    .day-tasks { flex: 1; padding: 6px 6px; overflow-y: auto; }
+    .task-item {
+      border-radius: 6px; padding: 5px 8px; margin-bottom: 5px;
+      font-size: 12px; line-height: 1.4; cursor: pointer;
+      display: flex; align-items: flex-start; gap: 5px; transition: .1s;
+    }
+    .task-item:hover { filter: brightness(.95); }
+    .task-item.done { opacity: .5; text-decoration: line-through; }
+    .task-item .ti-check {
+      width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid currentColor;
+      flex-shrink: 0; margin-top: 1px; display: flex; align-items: center; justify-content: center;
+      font-size: 10px;
+    }
+    .task-item.p-high { background: #fee2e2; color: #991b1b; }
+    .task-item.p-mid  { background: #fef3c7; color: #92400e; }
+    .task-item.p-low  { background: #d1fae5; color: #065f46; }
+    .task-item.p-info { background: #dbeafe; color: #1e40af; }
+    .day-add {
+      padding: 5px 6px; text-align: center; font-size: 12px; color: var(--gray-400);
+      cursor: pointer; border-top: 1px dashed var(--gray-200); transition: .15s;
+    }
+    .day-add:hover { color: var(--primary); background: var(--primary-light); }
+    .week-summary {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
+    }
+    .task-modal { width: 400px; }
+
+    /* ===== ONLINE LINKS ===== */
+    .link-type-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; padding: 2px 8px; border-radius: 100px;
+      font-weight: 600; white-space: nowrap;
+    }
+    .ltt-issue   { background: #fee2e2; color: #991b1b; }
+    .ltt-blueprint { background: #dbeafe; color: #1e40af; }
+    .ltt-req     { background: #ede9fe; color: #5b21b6; }
+    .ltt-accept  { background: #d1fae5; color: #065f46; }
+    .ltt-report  { background: #fef3c7; color: #92400e; }
+    .ltt-other   { background: var(--gray-100); color: var(--gray-700); }
+
+    .online-links-section { margin-bottom: 24px; }
+    .online-links-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .online-links-header h3 { font-size: 15px; font-weight: 700; color: var(--gray-900); }
+    .link-list { display: flex; flex-direction: column; gap: 8px; }
+    .link-card {
+      background: #fff; border-radius: 10px; padding: 12px 16px;
+      box-shadow: var(--shadow); display: flex; align-items: center; gap: 12px;
+      transition: box-shadow .15s;
+    }
+    .link-card:hover { box-shadow: 0 2px 12px rgba(26,86,219,.15); }
+    .link-card-icon { font-size: 20px; flex-shrink: 0; }
+    .link-card-body { flex: 1; min-width: 0; }
+    .link-card-title { font-size: 13.5px; font-weight: 600; color: var(--gray-900); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .link-card-meta { font-size: 11.5px; color: var(--gray-400); margin-top: 2px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .link-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .link-btn {
+      border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px;
+      cursor: pointer; transition: .15s;
+    }
+    .link-btn-open { background: var(--primary); color: #fff; }
+    .link-btn-open:hover { background: #1a3a8f; }
+    .link-btn-del { background: #fee2e2; color: var(--danger); }
+    .link-btn-del:hover { background: #fecaca; }
+
+    .edit-links-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; max-height: 180px; overflow-y: auto; }
+    .edit-link-row {
+      display: flex; align-items: center; gap: 6px; background: var(--gray-50);
+      border-radius: 8px; padding: 6px 10px; font-size: 12px;
+    }
+    .edit-link-row .el-title { flex: 1; font-weight: 600; color: var(--gray-700); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .edit-link-row .el-del { cursor: pointer; color: var(--danger); padding: 0 4px; font-size: 13px; flex-shrink: 0; }
+
+    /* ===== MILESTONE TRACK ===== */
+    .ms-track {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin-top: 4px;
+    }
+    .ms-node {
+      font-size: 11px; padding: 3px 9px; border-radius: 100px; cursor: pointer;
+      border: 1.5px solid transparent; transition: .15s; white-space: nowrap;
+      user-select: none;
+    }
+    .ms-node:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,.12); }
+    .ms-node-done { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+    .ms-node-active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 700; }
+    .ms-node-warn { background: var(--warning); color: #fff; border-color: var(--warning); font-weight: 700; }
+    .ms-node-pending { background: var(--gray-100); color: var(--gray-400); border-color: var(--gray-200); }
+    .ms-arrow { font-size: 13px; color: var(--gray-300); padding: 0 2px; line-height: 1; }
+  </style>
+</head>
+<body>
+
+<!-- 加载中遮罩 -->
+<div id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">正在连接云端数据库...</div>
+</div>
+
+<!-- 同步状态指示器 -->
+<div id="sync-indicator">
+  <div class="si-dot"></div>
+  <span id="sync-text">已同步</span>
+</div>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="logo">
+    🌐 金蝶云星空实施看板 <span>· ERP Project Tracker</span>
+  </div>
+  <div class="actions">
+    <div style="font-size:13px;opacity:.7" id="today-date"></div>
+    <button class="btn-add" onclick="openModal()">＋ 新建项目</button>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('overview', this)">📊 项目总览</div>
+  <div class="tab" onclick="switchTab('progress', this)">📅 项目进度</div>
+  <div class="tab" onclick="switchTab('docs', this)">📂 文档资料</div>
+  <div class="tab" onclick="switchTab('weekly', this)">📋 周计划</div>
+</div>
+
+<div class="main">
+
+  <!-- ===== PAGE: OVERVIEW ===== -->
+  <div class="page active" id="page-overview">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#e8efff">📁</div>
+        <div class="stat-info">
+          <div class="val" id="s-total" style="color:var(--primary)">0</div>
+          <div class="lbl">项目总数</div>
+          <div class="sub" style="color:var(--gray-500)">本年度在管</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#d1fae5">🚀</div>
+        <div class="stat-info">
+          <div class="val" id="s-running" style="color:var(--success)">0</div>
+          <div class="lbl">实施中</div>
+          <div class="sub" style="color:var(--success)">进行中项目</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#fef3c7">⚠️</div>
+        <div class="stat-info">
+          <div class="val" id="s-risk" style="color:var(--warning)">0</div>
+          <div class="lbl">风险预警</div>
+          <div class="sub" style="color:var(--warning)">需关注项目</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#d1fae5">✅</div>
+        <div class="stat-info">
+          <div class="val" id="s-done" style="color:var(--success)">0</div>
+          <div class="lbl">已上线</div>
+          <div class="sub" style="color:var(--gray-500)">本年度完成</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">
+      全部项目
+      <span class="more">共 <span id="proj-count">0</span> 个</span>
+    </div>
+    <div class="project-table">
+      <table>
+        <thead>
+          <tr>
+            <th>项目名称</th><th>客户</th><th>实施顾问</th><th>阶段</th>
+            <th>总进度</th><th>状态</th><th>计划上线</th><th>风险</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="proj-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== PAGE: PROGRESS ===== -->
+  <div class="page" id="page-progress">
+    <div class="alert-list" id="alert-list"></div>
+    <div class="progress-grid">
+      <div class="card" style="grid-column: 1 / -1">
+        <div class="card-header">
+          📅 项目阶段甘特图（当月视图）
+          <div style="font-size:12px;color:var(--gray-400)">每格 = 1周</div>
+        </div>
+        <div class="card-body">
+          <div class="gantt-wrap"><table class="gantt-table" id="gantt-table"></table></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">🏁 各项目里程碑进度</div>
+        <div class="card-body"><div class="timeline" id="milestone-list"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-header">📊 阶段分布</div>
+        <div class="card-body">
+          <div class="donut-wrap" id="donut-wrap">
+            <svg viewBox="0 0 120 120" width="120" height="120" id="donut-svg" style="flex-shrink:0"></svg>
+            <div class="donut-legend" id="donut-legend"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PAGE: DOCS ===== -->
+  <div class="page" id="page-docs">
+    <div class="docs-stats" id="docs-stats"></div>
+    <div class="online-links-section">
+      <div class="online-links-header">
+        <h3>🔗 在线文档关联</h3>
+        <button onclick="openAddLinkModal()" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:6px 16px;font-size:13px;cursor:pointer;">＋ 添加在线文档</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <select id="link-proj-filter" onchange="renderLinks()"
+          style="border:1px solid var(--gray-200);border-radius:8px;padding:6px 12px;font-size:13px;background:#fff;color:var(--gray-700)">
+          <option value="">全部项目</option>
+        </select>
+        <select id="link-type-filter" onchange="renderLinks()"
+          style="border:1px solid var(--gray-200);border-radius:8px;padding:6px 12px;font-size:13px;background:#fff;color:var(--gray-700)">
+          <option value="">全部类型</option>
+          <option value="issue">🐛 问题跟踪</option>
+          <option value="blueprint">📐 蓝图文档</option>
+          <option value="req">📋 需求说明</option>
+          <option value="accept">✅ 验收报告</option>
+          <option value="report">📊 汇报材料</option>
+          <option value="other">📎 其他</option>
+        </select>
+        <input id="link-search" placeholder="🔍 搜索文档标题..."
+          style="border:1px solid var(--gray-200);border-radius:8px;padding:6px 12px;font-size:13px;flex:1;min-width:160px"
+          oninput="renderLinks()" />
+      </div>
+      <div id="link-list"><div style="color:var(--gray-400);font-size:13px;padding:16px 0">暂无在线文档</div></div>
+    </div>
+
+    <div style="border-top:1px solid var(--gray-200);margin:20px 0 16px"></div>
+    <div style="font-size:14px;font-weight:700;color:var(--gray-700);margin-bottom:12px">📁 文件上传（☁️ 云端同步）</div>
+    <div class="upload-zone" id="upload-zone"
+      onclick="document.getElementById('file-input').click()"
+      ondragover="event.preventDefault();this.classList.add('drag')"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="handleDrop(event)">
+      <div class="uz-icon">☁️</div>
+      <div class="uz-title">点击或拖拽文件上传到云端</div>
+      <div class="uz-sub">支持 Word / Excel / PDF 等 · 多设备同步 · 免费 1GB</div>
+    </div>
+    <input type="file" id="file-input" multiple style="display:none" onchange="handleFileSelect(this.files)" />
+    <div class="docs-toolbar">
+      <input id="doc-search" placeholder="🔍 搜索文件名..." oninput="renderDocs()" />
+      <select id="doc-proj-filter" onchange="renderDocs()">
+        <option value="">全部项目</option>
+      </select>
+      <select id="doc-type-filter" onchange="renderDocs()">
+        <option value="">全部类型</option>
+        <option value="doc">📝 文档</option>
+        <option value="sheet">📊 表格</option>
+        <option value="ppt">📽️ 演示</option>
+        <option value="pdf">📄 PDF</option>
+        <option value="img">🖼️ 图片</option>
+        <option value="other">📦 其他</option>
+      </select>
+    </div>
+    <div class="file-grid" id="file-grid"></div>
+    <div class="docs-empty" id="docs-empty" style="display:none">暂无文档，请点击上方区域上传文件</div>
+
+    <div class="modal-overlay" id="upload-modal">
+      <div class="modal" style="width:420px">
+        <div class="modal-header">📎 上传文件 <span class="modal-close" onclick="cancelUpload()">×</span></div>
+        <div class="modal-body">
+          <div id="pending-files-list" style="margin-bottom:14px;font-size:13px;color:var(--gray-700)"></div>
+          <div class="form-group">
+            <label>关联项目（可选）</label>
+            <select id="upload-proj-select"><option value="">不关联项目</option></select>
+          </div>
+          <div class="form-group" style="margin-top:12px">
+            <label>备注说明（可选）</label>
+            <textarea id="upload-remark" rows="2" placeholder="例：蓝图确认文件 v1.2" style="border:1px solid var(--gray-300);border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;resize:vertical"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel" onclick="cancelUpload()">取消</button>
+          <button class="btn-primary" onclick="confirmUpload()">确认上传</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PAGE: WEEKLY PLAN ===== -->
+  <div class="page" id="page-weekly">
+    <div class="week-summary" id="week-summary"></div>
+    <div class="week-nav">
+      <button class="wn-btn" onclick="changeWeek(-1)">◀ 上一周</button>
+      <div class="wn-label" id="week-label"></div>
+      <button class="wn-btn wn-today" onclick="goToday()">回到本周</button>
+      <button class="wn-btn" onclick="changeWeek(1)">下一周 ▶</button>
+    </div>
+    <div class="week-grid" id="week-grid"></div>
+  </div>
+
+  <div class="modal-overlay" id="task-modal">
+    <div class="modal task-modal">
+      <div class="modal-header">＋ 添加日程 <span class="modal-close" onclick="closeTaskModal()">×</span></div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px" id="task-modal-date"></div>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>事项内容 *</label>
+          <input id="t-title" placeholder="例：华誉项目UAT评审会" />
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>优先级</label>
+            <select id="t-priority">
+              <option value="p-high">🔴 紧急</option>
+              <option value="p-mid" selected>🟡 重要</option>
+              <option value="p-low">🟢 普通</option>
+              <option value="p-info">🔵 了解</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>关联项目（可选）</label>
+            <select id="t-proj"><option value="">无</option></select>
+          </div>
+          <div class="form-group">
+            <label>时间（可选）</label>
+            <input id="t-time" type="time" />
+          </div>
+          <div class="form-group">
+            <label>地点（可选）</label>
+            <input id="t-location" placeholder="例：客户现场" />
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick="closeTaskModal()">取消</button>
+        <button class="btn-primary" onclick="confirmAddTask()">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD LINK MODAL -->
+<div class="modal-overlay" id="add-link-modal">
+  <div class="modal" style="width:460px">
+    <div class="modal-header">🔗 添加在线文档 <span class="modal-close" onclick="closeAddLinkModal()">×</span></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>文档标题 *</label>
+          <input id="l-title" placeholder="例：华誉项目问题跟踪表 v2.0" />
+        </div>
+        <div class="form-group">
+          <label>文档类型</label>
+          <select id="l-type">
+            <option value="issue">🐛 问题跟踪</option>
+            <option value="blueprint">📐 蓝图文档</option>
+            <option value="req">📋 需求说明</option>
+            <option value="accept">✅ 验收报告</option>
+            <option value="report">📊 汇报材料</option>
+            <option value="other">📎 其他</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>关联项目</label>
+          <select id="l-proj"><option value="">不关联</option></select>
+        </div>
+        <div class="form-group full">
+          <label>文档链接 *（WPS / 腾讯文档 / 任意在线地址）</label>
+          <input id="l-url" placeholder="https://kdocs.cn/l/xxx 或 https://docs.qq.com/xxx" />
+        </div>
+        <div class="form-group full">
+          <label>备注（可选）</label>
+          <input id="l-remark" placeholder="例：每周五更新，请各方确认" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeAddLinkModal()">取消</button>
+      <button class="btn-primary" onclick="confirmAddLink()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT PROJECT MODAL -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-header">✏️ 编辑项目 <span class="modal-close" onclick="closeEditModal()">×</span></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label>项目名称 *</label><input id="e-name" placeholder="例：XX集团金蝶云星空实施项目" /></div>
+        <div class="form-group"><label>客户名称 *</label><input id="e-client" /></div>
+        <div class="form-group"><label>实施顾问</label><input id="e-pm" /></div>
+        <div class="form-group">
+          <label>当前阶段</label>
+          <select id="e-phase">
+            <option>启动准备</option><option>蓝图调研</option><option>系统配置</option>
+            <option>数据迁移</option><option>UAT测试</option><option>上线切换</option><option>运维支持</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>项目状态</label>
+          <select id="e-status">
+            <option value="normal">🟢 正常</option><option value="risk">🟡 有风险</option>
+            <option value="delay">🔴 已延期</option><option value="done">✅ 已上线</option>
+          </select>
+        </div>
+        <div class="form-group"><label>总进度 (%)</label><input id="e-progress" type="number" min="0" max="100" /></div>
+        <div class="form-group"><label>计划上线日期</label><input id="e-date" type="date" /></div>
+        <div class="form-group full"><label>风险说明（可选）</label><textarea id="e-risk" rows="2"></textarea></div>
+        <div class="form-group full" style="margin-top:4px">
+          <label style="display:flex;align-items:center;justify-content:space-between">
+            <span>📎 在线文档</span>
+            <span onclick="openAddLinkModal(editingProjectId)" style="color:var(--primary);font-size:12px;cursor:pointer;font-weight:400">＋ 添加链接</span>
+          </label>
+          <div class="edit-links-list" id="edit-links-list"><div style="color:var(--gray-400);font-size:12px;padding:4px 0">暂无关联文档</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeEditModal()">取消</button>
+      <button class="btn-primary" onclick="saveEdit()">保存修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD PROJECT MODAL -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">＋ 新建实施项目 <span class="modal-close" onclick="closeModal()">×</span></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label>项目名称 *</label><input id="f-name" placeholder="例：XX集团金蝶云星空实施项目" /></div>
+        <div class="form-group"><label>客户名称 *</label><input id="f-client" /></div>
+        <div class="form-group"><label>实施顾问</label><input id="f-pm" /></div>
+        <div class="form-group">
+          <label>当前阶段</label>
+          <select id="f-phase">
+            <option>启动准备</option><option>蓝图调研</option><option>系统配置</option>
+            <option>数据迁移</option><option>UAT测试</option><option>上线切换</option><option>运维支持</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>项目状态</label>
+          <select id="f-status">
+            <option value="normal">🟢 正常</option><option value="risk">🟡 有风险</option>
+            <option value="delay">🔴 已延期</option><option value="done">✅ 已上线</option>
+          </select>
+        </div>
+        <div class="form-group"><label>总进度 (%)</label><input id="f-progress" type="number" min="0" max="100" /></div>
+        <div class="form-group"><label>计划上线日期</label><input id="f-date" type="date" /></div>
+        <div class="form-group full"><label>风险说明（可选）</label><textarea id="f-risk" rows="2"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn-primary" onclick="addProject()">保存项目</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== SUPABASE CONFIG =====
+const SUPA_URL = "https://anobstucgfijvszqrfaj.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFub2JzdHVjZ2ZpanZzenFyZmFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNDEzMTksImV4cCI6MjA5NDcxNzMxOX0.psRBWd5j7fHnyFxbeNwpodhkmr0bXFz4DWz4Ryqf4N4";
+const HEADERS = { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": "application/json", "Prefer": "return=representation" };
+
+async function sbFetch(path, opts = {}) {
+  const r = await fetch(SUPA_URL + "/rest/v1/" + path, { headers: HEADERS, ...opts });
+  if (!r.ok) { const e = await r.text(); throw new Error(e); }
+  const text = await r.text();
+  return text ? JSON.parse(text) : [];
+}
+
+function showSync(state, msg) {
+  const el = document.getElementById("sync-indicator");
+  const dot = el.querySelector(".si-dot");
+  document.getElementById("sync-text").textContent = msg;
+  el.className = "sync-indicator show " + state;
+  el.style.opacity = "1";
+  clearTimeout(el._timer);
+  if (state !== "syncing") {
+    el._timer = setTimeout(() => { el.style.opacity = "0"; }, 2000);
+  }
+}
+
+// ===== DATA =====
+let projects = [];
+let projectLinks = [];
+
+const phaseList = ["启动准备","蓝图调研","系统配置","数据迁移","UAT测试","上线切换","运维支持"];
+
+function statusInfo(s) {
+  const m = {
+    normal: { label:"正常", cls:"badge-green", dot:"dot-green" },
+    risk:   { label:"风险", cls:"badge-yellow", dot:"dot-yellow" },
+    delay:  { label:"延期", cls:"badge-red", dot:"dot-red" },
+    done:   { label:"已上线", cls:"badge-blue", dot:"dot-blue" }
+  };
+  return m[s] || m.normal;
+}
+
+function progressColor(p, s) {
+  if (s === "delay") return "#e02424";
+  if (s === "risk") return "#e3a008";
+  if (s === "done") return "#0e9f6e";
+  return "#1a56db";
+}
+
+// ===== LOAD DATA =====
+async function loadAll() {
+  showSync("syncing", "加载中...");
+  try {
+    const [projs, links] = await Promise.all([
+      sbFetch("projects?order=created_at.asc"),
+      sbFetch("project_links?order=created_at.desc")
+    ]);
+    projects = projs.map(p => ({
+      id: p.id, name: p.name, client: p.client || "", pm: p.pm || "未分配",
+      phase: p.phase || "启动准备", progress: p.progress || 0,
+      status: p.status || "normal", goLive: p.end_date || "待定",
+      risk: p.remark || ""
+    }));
+    projectLinks = links.map(l => ({
+      id: l.id, projId: l.proj_id, type: l.type || "other",
+      title: l.title, url: l.url, remark: l.remark || "",
+      createdAt: new Date(l.created_at).getTime()
+    }));
+    document.getElementById("loading-overlay").style.display = "none";
+    showSync("", "已同步");
+    render();
+  } catch(e) {
+    document.getElementById("loading-overlay").style.display = "none";
+    showSync("error", "连接失败");
+    console.error(e);
+  }
+}
+
+// ===== CRUD: PROJECTS =====
+async function createProject(data) {
+  showSync("syncing", "保存中...");
+  const row = await sbFetch("projects", {
+    method: "POST",
+    body: JSON.stringify({
+      name: data.name, client: data.client, pm: data.pm,
+      phase: data.phase, status: data.status, progress: data.progress,
+      end_date: data.goLive !== "待定" ? data.goLive : null,
+      remark: data.risk
+    })
+  });
+  showSync("", "已同步");
+  return row[0];
+}
+
+async function updateProject(id, data) {
+  showSync("syncing", "保存中...");
+  await sbFetch("projects?id=eq." + id, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: data.name, client: data.client, pm: data.pm,
+      phase: data.phase, status: data.status, progress: data.progress,
+      end_date: data.goLive !== "待定" ? data.goLive : null,
+      remark: data.risk, updated_at: new Date().toISOString()
+    })
+  });
+  showSync("", "已同步");
+}
+
+async function deleteProjectDB(id) {
+  showSync("syncing", "删除中...");
+  await sbFetch("projects?id=eq." + id, { method: "DELETE" });
+  await sbFetch("project_links?proj_id=eq." + id, { method: "DELETE" });
+  showSync("", "已同步");
+}
+
+// ===== CRUD: LINKS =====
+async function createLink(data) {
+  showSync("syncing", "保存中...");
+  const row = await sbFetch("project_links", {
+    method: "POST",
+    body: JSON.stringify({
+      proj_id: data.projId || null, type: data.type,
+      title: data.title, url: data.url, remark: data.remark
+    })
+  });
+  showSync("", "已同步");
+  return row[0];
+}
+
+async function deleteLinkDB(id) {
+  showSync("syncing", "删除中...");
+  await sbFetch("project_links?id=eq." + id, { method: "DELETE" });
+  showSync("", "已同步");
+}
+
+// ===== CRUD: WEEKLY TASKS =====
+async function loadWeeklyTasks() {
+  const rows = await sbFetch("weekly_tasks?order=date.asc");
+  return rows.map(r => ({
+    id: r.id, date: r.date, title: r.title,
+    priority: r.priority || "p-mid", proj: r.proj_id ? String(r.proj_id) : "",
+    time: r.time_start || "", location: r.location || "", done: r.done || false
+  }));
+}
+
+async function createWeeklyTask(data) {
+  const row = await sbFetch("weekly_tasks", {
+    method: "POST",
+    body: JSON.stringify({
+      title: data.title, date: data.date,
+      time_start: data.time || null, location: data.location || null,
+      priority: data.priority, proj_id: data.projId || null, done: false
+    })
+  });
+  return row[0];
+}
+
+async function updateWeeklyTaskDone(id, done) {
+  await sbFetch("weekly_tasks?id=eq." + id, {
+    method: "PATCH", body: JSON.stringify({ done })
+  });
+}
+
+async function deleteWeeklyTaskDB(id) {
+  await sbFetch("weekly_tasks?id=eq." + id, { method: "DELETE" });
+}
+
+// ===== RENDER =====
+function render() {
+  renderStats(); renderTable(); renderGantt(); renderMilestones(); renderDonut(); renderAlerts();
+}
+
+function renderStats() {
+  document.getElementById("s-total").textContent = projects.length;
+  document.getElementById("s-running").textContent = projects.filter(p => p.status === "normal" || p.status === "risk").length;
+  document.getElementById("s-risk").textContent = projects.filter(p => p.status === "risk" || p.status === "delay").length;
+  document.getElementById("s-done").textContent = projects.filter(p => p.status === "done").length;
+  document.getElementById("proj-count").textContent = projects.length;
+}
+
+function renderTable() {
+  const tb = document.getElementById("proj-tbody");
+  tb.innerHTML = projects.map(p => {
+    const si = statusInfo(p.status);
+    const pIdx = phaseList.indexOf(p.phase);
+    const phaseSegs = phaseList.map((ph, i) => {
+      let cls = "pending";
+      if (i < pIdx) cls = "done";
+      else if (i === pIdx) cls = p.status === "delay" ? "warn" : "active";
+      return `<div class="phase-seg ${cls}" title="${ph}"></div>`;
+    }).join("");
+    const col = progressColor(p.progress, p.status);
+    const riskTag = p.risk ? `<span class="risk-tag" style="background:#fee2e2;color:#991b1b" title="${p.risk}">⚠️ 有风险</span>` : `<span class="risk-tag" style="background:#d1fae5;color:#065f46">✅ 无</span>`;
+    const initials = (p.pm || "?").slice(0,1);
+    const linkCount = projectLinks.filter(l => l.projId === p.id).length;
+    return `<tr>
+      <td><b style="font-size:13.5px">${p.name}</b></td>
+      <td style="color:var(--gray-500)">${p.client}</td>
+      <td><div class="pm-cell"><div class="avatar">${initials}</div>${p.pm}</div></td>
+      <td><div class="phase-row" style="width:140px">${phaseSegs}</div><div style="font-size:11px;color:var(--gray-500);margin-top:3px">${p.phase}</div></td>
+      <td><div class="prog-wrap"><div class="prog-bar"><div class="prog-fill" style="width:${p.progress}%;background:${col}"></div></div><div class="prog-lbl">${p.progress}%</div></div></td>
+      <td><span class="badge ${si.cls}"><span class="dot ${si.dot}"></span>${si.label}</span></td>
+      <td style="font-size:12.5px;color:var(--gray-500)">${p.goLive}</td>
+      <td>${riskTag}</td>
+      <td>
+        <button onclick="openEditModal(${p.id})" style="background:none;border:1px solid #93c5fd;color:var(--primary);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-right:4px">✏️ 编辑</button>
+        <button onclick="openLinksForProject(${p.id})" style="background:none;border:1px solid #a7f3d0;color:#065f46;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-right:4px">🔗 文档${linkCount > 0 ? "("+linkCount+")" : ""}</button>
+        <button onclick="deleteProject(${p.id})" style="background:none;border:1px solid #fca5a5;color:var(--danger);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">🗑️ 删除</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function renderAlerts() {
+  const container = document.getElementById("alert-list");
+  const items = [];
+  projects.forEach(p => {
+    if (p.status === "delay") items.push(`<div class="alert-item red"><div class="ai">🔴</div><div class="atxt"><div class="ttl">${p.name} — 已延期</div><div class="desc">${p.risk || "项目已超过计划上线日期"}</div></div></div>`);
+    else if (p.status === "risk") items.push(`<div class="alert-item yellow"><div class="ai">🟡</div><div class="atxt"><div class="ttl">${p.name} — 存在风险</div><div class="desc">${p.risk || "请关注项目进展"}</div></div></div>`);
+  });
+  container.innerHTML = items.length ? items.join("") : `<div style="font-size:13px;color:var(--success);padding:10px 0">✅ 当前无预警项目</div>`;
+}
+
+function renderGantt() {
+  const weeks = ["W1","W2","W3","W4","W5","W6","W7","W8"];
+  const gantt = document.getElementById("gantt-table");
+  let html = `<thead><tr><th style="text-align:left;width:180px">项目</th><th style="text-align:left;width:80px">阶段</th>`;
+  weeks.forEach(w => html += `<th>${w}</th>`);
+  html += `</tr></thead><tbody>`;
+  projects.forEach(p => {
+    const filled = Math.round(p.progress / 100 * 8);
+    html += `<tr><td style="font-size:12px;font-weight:600">${p.name.slice(0,10)}…</td><td><span class="badge badge-gray" style="font-size:11px">${p.phase}</span></td>`;
+    for (let i = 0; i < 8; i++) {
+      let cls = "pending";
+      if (i < filled) cls = p.status === "delay" ? "warn" : (p.status === "done" ? "done" : "active");
+      html += `<td><span class="gantt-block ${cls}" style="width:90%"></span></td>`;
+    }
+    html += `</tr>`;
+  });
+  gantt.innerHTML = html + `</tbody>`;
+}
+
+function renderMilestones() {
+  const ml = document.getElementById("milestone-list");
+  ml.innerHTML = projects.map(p => {
+    const pIdx = phaseList.indexOf(p.phase);
+    const si = statusInfo(p.status);
+    const dotCls = p.status === "done" ? "done" : "active";
+    const phaseNodes = phaseList.map((ph, i) => {
+      let nodeCls = "ms-node-pending";
+      if (i < pIdx) nodeCls = "ms-node-done";
+      else if (i === pIdx) nodeCls = p.status === "delay" ? "ms-node-warn" : "ms-node-active";
+      const arrow = i < phaseList.length - 1 ? `<div class="ms-arrow">›</div>` : "";
+      return `<div class="ms-node ${nodeCls}" onclick="advanceMilestone(${p.id},${i})">${ph}</div>${arrow}`;
+    }).join("");
+    return `
+      <div class="tl-item" style="margin-bottom:24px">
+        <div class="tl-dot ${dotCls}">${p.progress === 100 ? "✓" : (pIdx+1)}</div>
+        <div class="tl-content">
+          <div class="tl-title" style="margin-bottom:6px">${p.name.slice(0,14)}… <span class="badge ${si.cls}" style="font-size:11px">${si.label}</span></div>
+          <div class="ms-track">${phaseNodes}</div>
+          <div class="tl-bar" style="margin-top:8px">
+            <div class="prog-wrap"><div class="prog-bar"><div class="prog-fill" style="width:${p.progress}%;background:${progressColor(p.progress,p.status)}"></div></div><div class="prog-lbl">${p.progress}%</div></div>
+          </div>
+          <div style="font-size:11px;color:var(--gray-400);margin-top:4px">计划上线 ${p.goLive} · 点击阶段节点可推进</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+async function advanceMilestone(projId, targetPhaseIdx) {
+  const p = projects.find(x => x.id === projId);
+  if (!p) return;
+  const currentIdx = phaseList.indexOf(p.phase);
+  const targetPhase = phaseList[targetPhaseIdx];
+  if (targetPhaseIdx < currentIdx) {
+    if (!confirm(`确认将「${p.name}」的阶段回退到「${targetPhase}」？`)) return;
+  } else if (targetPhaseIdx === currentIdx) {
+    openEditModal(projId); return;
+  } else {
+    if (!confirm(`确认将「${p.name}」推进到「${targetPhase}」阶段？`)) return;
+  }
+  p.phase = targetPhase;
+  const autoProgress = Math.round((targetPhaseIdx / (phaseList.length - 1)) * 100);
+  if (autoProgress > p.progress) p.progress = autoProgress;
+  if (targetPhaseIdx === phaseList.length - 1) { p.progress = 100; p.status = "done"; }
+  else if (p.status === "done") { p.status = "normal"; }
+  await updateProject(p.id, p);
+  render();
+}
+
+function renderDonut() {
+  const phaseCounts = {};
+  projects.forEach(p => { phaseCounts[p.phase] = (phaseCounts[p.phase] || 0) + 1; });
+  const entries = Object.entries(phaseCounts);
+  const total = entries.reduce((a, [,v]) => a + v, 0);
+  if (!total) return;
+  const svg = document.getElementById("donut-svg");
+  const legend = document.getElementById("donut-legend");
+  let angle = -90; const cx=60,cy=60,r=44,r2=28;
+  let paths = "";
+  const colors = ["#3b82f6","#10b981","#f59e0b","#e02424","#8b5cf6","#06b6d4","#6b7280"];
+  entries.forEach(([ph, cnt], i) => {
+    const slice = (cnt / total) * 360;
+    const start = angle, end = angle + slice;
+    const x1=cx+r*Math.cos(start*Math.PI/180), y1=cy+r*Math.sin(start*Math.PI/180);
+    const x2=cx+r*Math.cos(end*Math.PI/180), y2=cy+r*Math.sin(end*Math.PI/180);
+    const xi1=cx+r2*Math.cos(start*Math.PI/180), yi1=cy+r2*Math.sin(start*Math.PI/180);
+    const xi2=cx+r2*Math.cos(end*Math.PI/180), yi2=cy+r2*Math.sin(end*Math.PI/180);
+    const large = slice > 180 ? 1 : 0;
+    const col = colors[i % colors.length];
+    paths += `<path d="M${xi1},${yi1} A${r2},${r2} 0 ${large},1 ${xi2},${yi2} L${x2},${y2} A${r},${r} 0 ${large},0 ${x1},${y1} Z" fill="${col}" opacity=".9"/>`;
+    angle += slice;
+  });
+  svg.innerHTML = paths + `<text x="${cx}" y="${cy+5}" text-anchor="middle" font-size="16" font-weight="bold" fill="#374151">${total}</text>`;
+  legend.innerHTML = entries.map(([ph,cnt],i) => `<div class="leg-item"><div class="leg-dot" style="background:${colors[i%colors.length]}"></div><span>${ph}</span><span style="color:var(--gray-500);margin-left:auto;padding-left:8px">${cnt}个</span></div>`).join("");
+}
+
+// ===== DELETE PROJECT =====
+async function deleteProject(id) {
+  const p = projects.find(x => x.id === id);
+  if (!p) return;
+  if (!confirm(`确认删除项目「${p.name}」？此操作不可恢复。`)) return;
+  await deleteProjectDB(id);
+  projects = projects.filter(x => x.id !== id);
+  projectLinks = projectLinks.filter(x => x.projId !== id);
+  render();
+}
+
+// ===== ADD PROJECT MODAL =====
+function openModal() {
+  document.getElementById("modal-overlay").classList.add("show");
+  document.getElementById("f-date").value = "";
+}
+function closeModal() { document.getElementById("modal-overlay").classList.remove("show"); }
+
+async function addProject() {
+  const name = document.getElementById("f-name").value.trim();
+  const client = document.getElementById("f-client").value.trim();
+  if (!name || !client) { alert("请填写项目名称和客户名称"); return; }
+  const prog = Math.min(100, Math.max(0, parseInt(document.getElementById("f-progress").value) || 0));
+  const data = {
+    name, client,
+    pm: document.getElementById("f-pm").value || "未分配",
+    phase: document.getElementById("f-phase").value,
+    progress: prog,
+    status: document.getElementById("f-status").value,
+    goLive: document.getElementById("f-date").value || "待定",
+    risk: document.getElementById("f-risk").value
+  };
+  const row = await createProject(data);
+  projects.push({ ...data, id: row.id });
+  closeModal();
+  render();
+  ["f-name","f-client","f-pm","f-progress","f-risk"].forEach(id => document.getElementById(id).value = "");
+}
+
+// ===== EDIT PROJECT MODAL =====
+let editingProjectId = null;
+
+function openEditModal(projId) {
+  const p = projects.find(x => x.id === projId);
+  if (!p) return;
+  editingProjectId = projId;
+  document.getElementById("e-name").value = p.name;
+  document.getElementById("e-client").value = p.client;
+  document.getElementById("e-pm").value = p.pm;
+  document.getElementById("e-phase").value = p.phase;
+  document.getElementById("e-status").value = p.status;
+  document.getElementById("e-progress").value = p.progress;
+  document.getElementById("e-date").value = p.goLive !== "待定" ? p.goLive : "";
+  document.getElementById("e-risk").value = p.risk || "";
+  renderEditLinks(projId);
+  document.getElementById("edit-modal").classList.add("show");
+}
+
+function renderEditLinks(projId) {
+  const links = projectLinks.filter(l => l.projId === projId);
+  const el = document.getElementById("edit-links-list");
+  if (links.length === 0) { el.innerHTML = `<div style="color:var(--gray-400);font-size:12px;padding:4px 0">暂无关联文档</div>`; return; }
+  el.innerHTML = links.map(l => {
+    const ti = getLinkTypeInfo(l.type);
+    return `<div class="edit-link-row">
+      <span class="link-type-tag ${ti.cls}">${ti.icon} ${ti.label}</span>
+      <span class="el-title" title="${l.url}">${l.title}</span>
+      <a href="${l.url}" target="_blank" style="color:var(--primary);font-size:11px;text-decoration:none">🔗 打开</a>
+      <span class="el-del" onclick="deleteLink(${l.id})">✕</span>
+    </div>`;
+  }).join("");
+}
+
+function closeEditModal() { document.getElementById("edit-modal").classList.remove("show"); editingProjectId = null; }
+
+async function saveEdit() {
+  const p = projects.find(x => x.id === editingProjectId);
+  if (!p) return;
+  const name = document.getElementById("e-name").value.trim();
+  const client = document.getElementById("e-client").value.trim();
+  if (!name || !client) { alert("请填写项目名称和客户名称"); return; }
+  p.name = name; p.client = client;
+  p.pm = document.getElementById("e-pm").value || "未分配";
+  p.phase = document.getElementById("e-phase").value;
+  p.status = document.getElementById("e-status").value;
+  p.progress = Math.min(100, Math.max(0, parseInt(document.getElementById("e-progress").value) || 0));
+  p.goLive = document.getElementById("e-date").value || "待定";
+  p.risk = document.getElementById("e-risk").value;
+  await updateProject(p.id, p);
+  closeEditModal();
+  render();
+}
+
+// ===== TABS =====
+function switchTab(page, el) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("page-" + page).classList.add("active");
+  if (page === "docs") { populateDocFilters(); populateLinkFilters(); renderDocs(); renderLinks(); }
+  if (page === "weekly") { initWeekly(); }
+}
+
+// ===== DATE =====
+function setDate() {
+  const now = new Date();
+  document.getElementById("today-date").textContent = now.toLocaleDateString("zh-CN", { year:"numeric", month:"long", day:"numeric", weekday:"short" });
+}
+
+// ===== WEEKLY PLAN =====
+let weeklyTasks = [];
+let currentWeekOffset = 0;
+let addTaskDate = null;
+let weeklyLoaded = false;
+
+async function initWeekly() {
+  if (!weeklyLoaded) {
+    weeklyTasks = await loadWeeklyTasks();
+    weeklyLoaded = true;
+  }
+  renderWeekly();
+}
+
+function getWeekDates(offset) {
+  const now = new Date();
+  const day = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1) + offset * 7);
+  monday.setHours(0,0,0,0);
+  return Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d; });
+}
+
+function dateKey(d) { return d.toISOString().slice(0,10); }
+
+function renderWeekly() {
+  const dates = getWeekDates(currentWeekOffset);
+  const today = dateKey(new Date());
+  const weekDays = ["周一","周二","周三","周四","周五","周六","周日"];
+  const months = dates[0].getMonth() !== dates[6].getMonth()
+    ? `${dates[0].getMonth()+1}月 — ${dates[6].getMonth()+1}月`
+    : `${dates[0].getFullYear()}年 ${dates[0].getMonth()+1}月`;
+  document.getElementById("week-label").textContent =
+    `${months}  第 ${getWeekNum(dates[0])} 周（${dates[0].getDate()}日 — ${dates[6].getDate()}日）`;
+
+  const weekKeys = dates.map(d => dateKey(d));
+  const weekAll = weeklyTasks.filter(t => weekKeys.includes(t.date));
+  const done = weekAll.filter(t => t.done).length;
+  const total = weekAll.length;
+  const high = weekAll.filter(t => t.priority === "p-high" && !t.done).length;
+
+  document.getElementById("week-summary").innerHTML = `
+    <div class="stat-card"><div class="stat-icon" style="background:#e8efff">📋</div><div class="stat-info"><div class="val" style="color:var(--primary)">${total}</div><div class="lbl">本周事项</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#d1fae5">✅</div><div class="stat-info"><div class="val" style="color:var(--success)">${done}</div><div class="lbl">已完成</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#fee2e2">🔴</div><div class="stat-info"><div class="val" style="color:var(--danger)">${high}</div><div class="lbl">紧急待办</div></div></div>
+    <div class="stat-card"><div class="stat-icon" style="background:#fef3c7">📈</div><div class="stat-info"><div class="val" style="color:var(--warning)">${total ? Math.round(done/total*100) : 0}%</div><div class="lbl">完成率</div></div></div>
+  `;
+
+  const grid = document.getElementById("week-grid");
+  grid.innerHTML = dates.map((d, i) => {
+    const key = dateKey(d);
+    const isToday = key === today;
+    const tasks = weeklyTasks.filter(t => t.date === key).sort((a,b) => (a.time||"").localeCompare(b.time||""));
+    const taskHtml = tasks.map(t => `
+      <div class="task-item ${t.priority} ${t.done ? "done" : ""}" onclick="toggleTask(${t.id})">
+        <div class="ti-check">${t.done ? "✓" : ""}</div>
+        <div style="flex:1">
+          ${t.time ? `<span style="font-weight:600;margin-right:3px">${t.time}</span>` : ""}
+          ${t.title}
+          ${t.location ? `<div style="font-size:10px;opacity:.7">📍${t.location}</div>` : ""}
+        </div>
+        <div onclick="event.stopPropagation();deleteTask(${t.id})" style="opacity:.4;font-size:11px;cursor:pointer;padding:1px 3px">✕</div>
+      </div>`).join("");
+    return `<div class="day-col ${isToday ? "today" : ""}">
+      <div class="day-header"><div class="dh-week">${weekDays[i]}</div><div class="dh-num">${d.getDate()}</div></div>
+      <div class="day-tasks">${taskHtml}</div>
+      <div class="day-add" onclick="openTaskModal('${key}')">＋ 添加</div>
+    </div>`;
+  }).join("");
+}
+
+function getWeekNum(d) {
+  const start = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil(((d - start) / 86400000 + start.getDay() + 1) / 7);
+}
+
+function changeWeek(dir) { currentWeekOffset += dir; renderWeekly(); }
+function goToday() { currentWeekOffset = 0; renderWeekly(); }
+
+async function toggleTask(id) {
+  const t = weeklyTasks.find(x => x.id === id);
+  if (!t) return;
+  t.done = !t.done;
+  await updateWeeklyTaskDone(id, t.done);
+  renderWeekly();
+}
+
+async function deleteTask(id) {
+  if (!confirm("确认删除该日程？")) return;
+  await deleteWeeklyTaskDB(id);
+  weeklyTasks = weeklyTasks.filter(x => x.id !== id);
+  renderWeekly();
+}
+
+function openTaskModal(dateStr) {
+  addTaskDate = dateStr;
+  const d = new Date(dateStr);
+  document.getElementById("task-modal-date").textContent = `日期：${d.toLocaleDateString("zh-CN", { year:"numeric", month:"long", day:"numeric", weekday:"long" })}`;
+  document.getElementById("t-title").value = "";
+  document.getElementById("t-time").value = "";
+  document.getElementById("t-location").value = "";
+  document.getElementById("t-priority").value = "p-mid";
+  const sel = document.getElementById("t-proj");
+  sel.innerHTML = `<option value="">无</option>` + projects.map(p => `<option value="${p.id}">${p.name}</option>`).join("");
+  document.getElementById("task-modal").classList.add("show");
+  setTimeout(() => document.getElementById("t-title").focus(), 50);
+}
+
+function closeTaskModal() { document.getElementById("task-modal").classList.remove("show"); addTaskDate = null; }
+
+async function confirmAddTask() {
+  const title = document.getElementById("t-title").value.trim();
+  if (!title) { alert("请填写事项内容"); return; }
+  const projId = document.getElementById("t-proj").value || null;
+  const row = await createWeeklyTask({
+    title, date: addTaskDate,
+    priority: document.getElementById("t-priority").value,
+    projId: projId ? parseInt(projId) : null,
+    time: document.getElementById("t-time").value,
+    location: document.getElementById("t-location").value.trim()
+  });
+  weeklyTasks.push({
+    id: row.id, date: addTaskDate, title,
+    priority: document.getElementById("t-priority").value,
+    proj: projId || "", time: document.getElementById("t-time").value,
+    location: document.getElementById("t-location").value.trim(), done: false
+  });
+  closeTaskModal();
+  renderWeekly();
+}
+
+// ===== 在线文档管理 =====
+let addLinkForProjId = null;
+
+const linkTypeMap = {
+  issue:     { icon:"🐛", label:"问题跟踪", cls:"ltt-issue" },
+  blueprint: { icon:"📐", label:"蓝图文档", cls:"ltt-blueprint" },
+  req:       { icon:"📋", label:"需求说明", cls:"ltt-req" },
+  accept:    { icon:"✅", label:"验收报告", cls:"ltt-accept" },
+  report:    { icon:"📊", label:"汇报材料", cls:"ltt-report" },
+  other:     { icon:"📎", label:"其他",     cls:"ltt-other" }
+};
+
+function getLinkTypeInfo(type) { return linkTypeMap[type] || linkTypeMap.other; }
+
+function populateLinkFilters() {
+  const opts = `<option value="">全部项目</option>` + projects.map(p => `<option value="${p.id}">${p.name}</option>`).join("");
+  document.getElementById("link-proj-filter").innerHTML = opts;
+  document.getElementById("l-proj").innerHTML = `<option value="">不关联</option>` + projects.map(p => `<option value="${p.id}">${p.name}</option>`).join("");
+}
+
+function renderLinks() {
+  const search = (document.getElementById("link-search")?.value || "").toLowerCase();
+  const projFilter = document.getElementById("link-proj-filter")?.value || "";
+  const typeFilter = document.getElementById("link-type-filter")?.value || "";
+  let filtered = projectLinks.filter(l => {
+    if (search && !l.title.toLowerCase().includes(search)) return false;
+    if (projFilter && String(l.projId) !== String(projFilter)) return false;
+    if (typeFilter && l.type !== typeFilter) return false;
+    return true;
+  }).sort((a,b) => b.createdAt - a.createdAt);
+
+  const container = document.getElementById("link-list");
+  if (!container) return;
+  if (filtered.length === 0) { container.innerHTML = `<div style="color:var(--gray-400);font-size:13px;padding:16px 0">暂无匹配的在线文档</div>`; return; }
+  container.innerHTML = `<div class="link-list">${filtered.map(l => {
+    const ti = getLinkTypeInfo(l.type);
+    const proj = projects.find(p => p.id === l.projId);
+    return `<div class="link-card">
+      <div class="link-card-icon">${ti.icon}</div>
+      <div class="link-card-body">
+        <div class="link-card-title">${l.title}</div>
+        <div class="link-card-meta">
+          <span class="link-type-tag ${ti.cls}">${ti.label}</span>
+          ${proj ? `<span style="color:var(--gray-500)">📁 ${proj.name}</span>` : ""}
+          ${l.remark ? `<span style="font-style:italic">${l.remark}</span>` : ""}
+          <span>${new Date(l.createdAt).toLocaleDateString("zh-CN")}</span>
+        </div>
+      </div>
+      <div class="link-card-actions">
+        <button class="link-btn link-btn-open" onclick="window.open('${l.url}','_blank')">🔗 打开</button>
+        <button class="link-btn link-btn-del" onclick="deleteLink(${l.id})">🗑️</button>
+      </div>
+    </div>`;
+  }).join("")}</div>`;
+  renderDocStats();
+}
+
+function renderDocStats() {
+  const all = uploadedFiles;
+  const totalSize = all.reduce((a,f) => a+(f.size||0), 0);
+  document.getElementById("docs-stats").innerHTML = `
+    <div class="ds-item"><div class="ds-val" style="color:var(--primary)">${all.length}</div><div>☁️ 云端文件</div></div>
+    <div class="ds-item"><div class="ds-val" style="color:var(--success)">${formatSize(totalSize)}</div><div>总大小</div></div>
+    <div class="ds-item"><div class="ds-val" style="color:var(--warning)">${all.filter(f=>f.project).length}</div><div>已关联文件</div></div>
+    <div class="ds-item"><div class="ds-val" style="color:#8b5cf6">${projectLinks.length}</div><div>在线文档</div></div>`;
+}
+
+function openAddLinkModal(projId) {
+  addLinkForProjId = projId || null;
+  document.getElementById("l-proj").innerHTML = `<option value="">不关联</option>` + projects.map(p => `<option value="${p.id}">${p.name}</option>`).join("");
+  if (projId) document.getElementById("l-proj").value = String(projId);
+  document.getElementById("l-title").value = "";
+  document.getElementById("l-url").value = "";
+  document.getElementById("l-remark").value = "";
+  document.getElementById("l-type").value = "issue";
+  document.getElementById("add-link-modal").classList.add("show");
+  setTimeout(() => document.getElementById("l-title").focus(), 50);
+}
+
+function closeAddLinkModal() { document.getElementById("add-link-modal").classList.remove("show"); addLinkForProjId = null; }
+
+async function confirmAddLink() {
+  const title = document.getElementById("l-title").value.trim();
+  const url = document.getElementById("l-url").value.trim();
+  if (!title) { alert("请填写文档标题"); return; }
+  if (!url) { alert("请填写文档链接"); return; }
+  if (!/^https?:\/\/.+/.test(url)) { alert("链接格式不正确，请以 http:// 或 https:// 开头"); return; }
+  const projIdVal = document.getElementById("l-proj").value;
+  const data = {
+    projId: projIdVal ? parseInt(projIdVal) : null,
+    type: document.getElementById("l-type").value,
+    title, url, remark: document.getElementById("l-remark").value.trim()
+  };
+  const row = await createLink(data);
+  projectLinks.unshift({ ...data, id: row.id, createdAt: new Date(row.created_at).getTime() });
+  closeAddLinkModal();
+  if (editingProjectId) renderEditLinks(editingProjectId);
+  if (document.getElementById("link-list")) renderLinks();
+  renderTable();
+}
+
+async function deleteLink(id) {
+  if (!confirm("确认删除该在线文档关联？")) return;
+  await deleteLinkDB(id);
+  projectLinks = projectLinks.filter(l => l.id !== id);
+  if (editingProjectId) renderEditLinks(editingProjectId);
+  if (document.getElementById("link-list")) renderLinks();
+  renderTable();
+}
+
+function openLinksForProject(projId) {
+  const docTab = document.querySelector('.tab[onclick*="docs"]');
+  if (docTab) {
+    switchTab("docs", docTab);
+    setTimeout(() => {
+      const sel = document.getElementById("link-proj-filter");
+      if (sel) { sel.value = String(projId); renderLinks(); }
+    }, 50);
+  }
+}
+
+// ===== DOCS: Supabase Storage（云端文件）=====
+const STORAGE_BUCKET = "project-files";
+let uploadedFiles = []; // 内存缓存
+let pendingFiles = [];
+
+// Supabase Storage 上传
+async function uploadFileToStorage(file, path) {
+  const res = await fetch(
+    `${SUPA_URL}/storage/v1/object/${STORAGE_BUCKET}/${path}`,
+    { method: "POST", headers: { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": file.type || "application/octet-stream", "x-upsert": "true" }, body: file }
+  );
+  if (!res.ok) { const e = await res.text(); throw new Error(e); }
+  return res;
+}
+
+// Supabase Storage 删除
+async function deleteFileFromStorage(path) {
+  await fetch(`${SUPA_URL}/storage/v1/object/${STORAGE_BUCKET}/${path}`,
+    { method: "DELETE", headers: { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY } }
+  );
+}
+
+// 获取公开访问 URL
+function getStorageUrl(path) {
+  return `${SUPA_URL}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
+}
+
+// 从 uploaded_files 表加载文件元数据
+async function loadUploadedFiles() {
+  try {
+    const rows = await sbFetch("uploaded_files?order=uploaded_at.desc");
+    uploadedFiles = rows.map(r => ({
+      id: r.id, name: r.name, size: r.size, type: r.file_type,
+      project: r.project_name || "", remark: r.remark || "",
+      storagePath: r.storage_path, uploadedAt: new Date(r.uploaded_at).getTime()
+    }));
+  } catch(e) {
+    // 表不存在时静默处理
+    uploadedFiles = [];
+  }
+}
+
+// 保存文件元数据到 uploaded_files 表
+async function saveFileRecord(data) {
+  const row = await sbFetch("uploaded_files", {
+    method: "POST",
+    body: JSON.stringify({
+      name: data.name, size: data.size, file_type: data.type,
+      project_name: data.project || null, remark: data.remark || null,
+      storage_path: data.storagePath
+    })
+  });
+  return row[0];
+}
+
+// 删除文件元数据记录
+async function deleteFileRecord(id) {
+  await sbFetch("uploaded_files?id=eq." + id, { method: "DELETE" });
+}
+
+function getFileTypeCategory(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  if (["doc","docx","txt","md"].includes(ext)) return "doc";
+  if (["xls","xlsx","csv"].includes(ext)) return "sheet";
+  if (["ppt","pptx"].includes(ext)) return "ppt";
+  if (["pdf"].includes(ext)) return "pdf";
+  if (["png","jpg","jpeg","gif","bmp","webp"].includes(ext)) return "img";
+  return "other";
+}
+
+function getFileIcon(type) { return { doc:"📝", sheet:"📊", ppt:"📽️", pdf:"📄", img:"🖼️", other:"📦" }[type] || "📦"; }
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + " KB";
+  return (bytes/1048576).toFixed(2) + " MB";
+}
+function formatDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString("zh-CN") + " " + d.toLocaleTimeString("zh-CN", { hour:"2-digit", minute:"2-digit" });
+}
+
+function populateDocFilters() {
+  const opts = projects.map(p => `<option value="${p.name}">${p.name}</option>`).join("");
+  document.getElementById("doc-proj-filter").innerHTML = `<option value="">全部项目</option>${opts}`;
+  document.getElementById("upload-proj-select").innerHTML = `<option value="">不关联项目</option>${opts}`;
+}
+
+async function renderDocs() {
+  await loadUploadedFiles();
+  const all = uploadedFiles;
+  const search = document.getElementById("doc-search").value.toLowerCase();
+  const projFilter = document.getElementById("doc-proj-filter").value;
+  const typeFilter = document.getElementById("doc-type-filter").value;
+  let filtered = all.filter(f => {
+    if (search && !f.name.toLowerCase().includes(search)) return false;
+    if (projFilter && f.project !== projFilter) return false;
+    if (typeFilter && f.type !== typeFilter) return false;
+    return true;
+  });
+  const totalSize = all.reduce((a,f) => a+(f.size||0), 0);
+  document.getElementById("docs-stats").innerHTML = `
+    <div class="ds-item"><div class="ds-val" style="color:var(--primary)">${all.length}</div><div>☁️ 云端文件</div></div>
+    <div class="ds-item"><div class="ds-val" style="color:var(--success)">${formatSize(totalSize)}</div><div>总大小</div></div>
+    <div class="ds-item"><div class="ds-val" style="color:var(--warning)">${all.filter(f=>f.project).length}</div><div>已关联文件</div></div>
+    <div class="ds-item"><div class="ds-val" style="color:#8b5cf6">${projectLinks.length}</div><div>在线文档</div></div>`;
+  const grid = document.getElementById("file-grid");
+  const empty = document.getElementById("docs-empty");
+  if (filtered.length === 0) { grid.innerHTML = ""; empty.style.display = "block"; empty.textContent = "暂无云端文档，请点击上方区域上传文件"; return; }
+  empty.style.display = "none";
+  grid.innerHTML = filtered.map(f => {
+    const fileUrl = getStorageUrl(f.storagePath);
+    return `<div class="file-card">
+      <div class="fc-icon">${getFileIcon(f.type)}</div>
+      <div class="fc-name" title="${f.name}">${f.name}</div>
+      <div class="fc-meta">${formatSize(f.size)} · ${formatDate(f.uploadedAt)}</div>
+      ${f.project ? `<div><span class="fc-project">📁 ${f.project}</span></div>` : ""}
+      ${f.remark ? `<div style="font-size:11px;color:var(--gray-500);font-style:italic">${f.remark}</div>` : ""}
+      <div class="fc-actions">
+        <button class="fc-btn" onclick="window.open('${fileUrl}','_blank')">⬇️ 下载</button>
+        <button class="fc-btn del" onclick="removeDoc(${f.id},'${f.storagePath}')">🗑️ 删除</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function handleFileSelect(files) { if (!files || !files.length) return; pendingFiles = Array.from(files); openUploadModal(); }
+function handleDrop(e) { e.preventDefault(); document.getElementById("upload-zone").classList.remove("drag"); handleFileSelect(e.dataTransfer.files); }
+
+function openUploadModal() {
+  populateDocFilters();
+  document.getElementById("pending-files-list").innerHTML = `<b>待上传 ${pendingFiles.length} 个文件：</b><br>` + pendingFiles.map(f => `<span style="color:var(--gray-500)">• ${f.name} (${formatSize(f.size)})</span>`).join("<br>");
+  document.getElementById("upload-modal").classList.add("show");
+}
+
+function cancelUpload() { pendingFiles = []; document.getElementById("upload-modal").classList.remove("show"); document.getElementById("file-input").value = ""; }
+
+async function confirmUpload() {
+  const proj = document.getElementById("upload-proj-select").value;
+  const remark = document.getElementById("upload-remark").value.trim();
+  const btn = document.querySelector('#upload-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = "上传中..."; }
+  showSync("syncing", "上传中...");
+  try {
+    for (const file of pendingFiles) {
+      // 生成唯一路径：时间戳_文件名
+      const ts = Date.now();
+      const safeName = file.name.replace(/[^a-zA-Z0-9.\-_\u4e00-\u9fa5]/g, "_");
+      const storagePath = `${ts}_${safeName}`;
+      await uploadFileToStorage(file, storagePath);
+      const record = {
+        name: file.name, size: file.size,
+        type: getFileTypeCategory(file.name),
+        project: proj, remark, storagePath
+      };
+      await saveFileRecord(record);
+    }
+    showSync("", "已同步");
+    cancelUpload();
+    renderDocs();
+  } catch(e) {
+    showSync("error", "上传失败");
+    alert("上传失败：" + e.message + "\n\n请确认 Supabase Storage 的 project-files bucket 已创建并设为 Public。");
+    if (btn) { btn.disabled = false; btn.textContent = "确认上传"; }
+  }
+}
+
+async function removeDoc(id, storagePath) {
+  if (!confirm("确认删除该云端文件？此操作不可恢复。")) return;
+  showSync("syncing", "删除中...");
+  try {
+    await deleteFileFromStorage(storagePath);
+    await deleteFileRecord(id);
+    uploadedFiles = uploadedFiles.filter(f => f.id !== id);
+    showSync("", "已同步");
+    renderDocs();
+  } catch(e) {
+    showSync("error", "删除失败");
+    console.error(e);
+  }
+}
+
+// ===== INIT =====
+setDate();
+loadAll();
+</script>
+</body>
+</html>
