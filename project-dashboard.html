@@ -953,16 +953,16 @@
       <button class="wn-btn" id="nav-next" onclick="calNext()">下一 ▶</button>
       <!-- 视图切换 -->
       <div class="view-toggle">
-        <button class="vt-btn" id="vt-week" onclick="setCalView('week')">📋 周</button>
-        <button class="vt-btn active" id="vt-month" onclick="setCalView('month')">📅 月</button>
+        <button class="vt-btn active" id="vt-week" onclick="setCalView('week')">📋 周</button>
+        <button class="vt-btn" id="vt-month" onclick="setCalView('month')">📅 月</button>
       </div>
     </div>
     <!-- 周视图 -->
-    <div id="week-view" style="display:none">
+    <div id="week-view">
       <div class="week-grid" id="week-grid"></div>
     </div>
     <!-- 月历视图 -->
-    <div id="month-view">
+    <div id="month-view" style="display:none">
       <div class="month-cal">
         <div class="mc-weekdays">
           <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div>
@@ -1564,26 +1564,40 @@ let weeklyTasks = [];
 let currentWeekOffset = 0;
 let addTaskDate = null;
 let weeklyLoaded = false;
-let calView = "month"; // "week" | "month"
+let calView = "week"; // "week" | "month"  — 默认周视图，更符合日常使用习惯
 let monthYear = new Date().getFullYear();
 let monthMonth = new Date().getMonth(); // 0-based
 
 async function initWeekly() {
-  if (!weeklyLoaded) {
-    weeklyTasks = await loadWeeklyTasks();
-    weeklyLoaded = true;
+  try {
+    if (!weeklyLoaded) {
+      weeklyTasks = await loadWeeklyTasks();
+      weeklyLoaded = true;
+    }
+    renderCal();
+  } catch (e) {
+    console.error("initWeekly error:", e);
+    weeklyTasks = weeklyTasks || [];
+    renderCal();
   }
-  renderCal();
 }
 
 // ===== 视图切换 =====
 function setCalView(v) {
   calView = v;
-  document.getElementById("vt-week").classList.toggle("active", v === "week");
-  document.getElementById("vt-month").classList.toggle("active", v === "month");
-  document.getElementById("week-view").style.display = v === "week" ? "" : "none";
-  document.getElementById("month-view").style.display = v === "month" ? "" : "none";
-  renderCal();
+  try {
+    const vtWeek = document.getElementById("vt-week");
+    const vtMonth = document.getElementById("vt-month");
+    const weekView = document.getElementById("week-view");
+    const monthView = document.getElementById("month-view");
+    if (vtWeek) vtWeek.classList.toggle("active", v === "week");
+    if (vtMonth) vtMonth.classList.toggle("active", v === "month");
+    if (weekView) weekView.style.display = v === "week" ? "" : "none";
+    if (monthView) monthView.style.display = v === "month" ? "" : "none";
+    renderCal();
+  } catch (e) {
+    console.error("setCalView error:", e);
+  }
 }
 
 function calPrev() { if (calView === "week") { currentWeekOffset--; renderCal(); } else { monthMonth--; if (monthMonth < 0) { monthMonth = 11; monthYear--; } renderCal(); } }
@@ -1608,88 +1622,109 @@ function getWeekDates(offset) {
 function dateKey(d) { return d.toISOString().slice(0,10); }
 
 function renderWeekly() {
-  const dates = getWeekDates(currentWeekOffset);
-  const today = dateKey(new Date());
-  const weekDays = ["周一","周二","周三","周四","周五","周六","周日"];
-  const months = dates[0].getMonth() !== dates[6].getMonth()
-    ? `${dates[0].getMonth()+1}月 — ${dates[6].getMonth()+1}月`
-    : `${dates[0].getFullYear()}年 ${dates[0].getMonth()+1}月`;
-  document.getElementById("week-label").textContent =
-    `${months}  第 ${getWeekNum(dates[0])} 周（${dates[0].getDate()}日 — ${dates[6].getDate()}日）`;
+  try {
+    const dates = getWeekDates(currentWeekOffset);
+    const today = dateKey(new Date());
+    const weekDays = ["周一","周二","周三","周四","周五","周六","周日"];
+    const months = dates[0].getMonth() !== dates[6].getMonth()
+      ? `${dates[0].getMonth()+1}月 — ${dates[6].getMonth()+1}月`
+      : `${dates[0].getFullYear()}年 ${dates[0].getMonth()+1}月`;
+    const weekLabel = document.getElementById("week-label");
+    if (weekLabel) weekLabel.textContent =
+      `${months}  第 ${getWeekNum(dates[0])} 周（${dates[0].getDate()}日 — ${dates[6].getDate()}日）`;
 
-  // 统计当月所有任务（月视图和周视图都用同一个统计）
-  renderWeeklySummary(weeklyTasks.filter(t => dates.map(d => dateKey(d)).includes(t.date)));
+    // 统计
+    const safeTasks = Array.isArray(weeklyTasks) ? weeklyTasks : [];
+    renderWeeklySummary(safeTasks.filter(t => t && t.date && dates.map(d => dateKey(d)).includes(t.date)));
 
-  const grid = document.getElementById("week-grid");
-  grid.innerHTML = dates.map((d, i) => {
-    const key = dateKey(d);
-    const isToday = key === today;
-    const tasks = weeklyTasks.filter(t => t.date === key).sort((a,b) => (a.time||"").localeCompare(b.time||""));
-    const taskHtml = tasks.map(t => `
-      <div class="task-item ${t.priority} ${t.done ? "done" : ""}" onclick="toggleTask(${t.id})">
-        <div class="ti-check">${t.done ? "✓" : ""}</div>
-        <div style="flex:1">
-          ${t.time ? `<span style="font-weight:600;margin-right:3px">${t.time}</span>` : ""}
-          ${t.title}
-          ${t.location ? `<div style="font-size:10px;opacity:.7">📍${t.location}</div>` : ""}
-        </div>
-        <div onclick="event.stopPropagation();deleteTask(${t.id})" style="opacity:.4;font-size:11px;cursor:pointer;padding:1px 3px">✕</div>
-      </div>`).join("");
-    return `<div class="day-col ${isToday ? "today" : ""}">
-      <div class="day-header"><div class="dh-week">${weekDays[i]}</div><div class="dh-num">${d.getDate()}</div></div>
-      <div class="day-tasks">${taskHtml}</div>
-      <div class="day-add" onclick="openTaskModal('${key}')">＋ 添加</div>
-    </div>`;
-  }).join("");
+    const grid = document.getElementById("week-grid");
+    if (!grid) return;
+    grid.innerHTML = dates.map((d, i) => {
+      const key = dateKey(d);
+      const isToday = key === today;
+      const tasks = safeTasks.filter(t => t && t.date === key).sort((a,b) => String(a.time||"").localeCompare(b.time||""));
+      const taskHtml = tasks.map(t => {
+        const safeTitle = (t.title || "").replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+        return `<div class="task-item ${t.priority || 'p-mid'} ${t.done ? "done" : ""}" onclick="toggleTask(${t.id})">
+          <div class="ti-check">${t.done ? "✓" : ""}</div>
+          <div style="flex:1">
+            ${t.time ? `<span style="font-weight:600;margin-right:3px">${t.time}</span>` : ""}
+            ${safeTitle}
+            ${t.location ? `<div style="font-size:10px;opacity:.7">📍${t.location}</div>` : ""}
+          </div>
+          <div onclick="event.stopPropagation();deleteTask(${t.id})" style="opacity:.4;font-size:11px;cursor:pointer;padding:1px 3px">✕</div>
+        </div>`;
+      }).join("");
+      return `<div class="day-col ${isToday ? "today" : ""}">
+        <div class="day-header"><div class="dh-week">${weekDays[i]}</div><div class="dh-num">${d.getDate()}</div></div>
+        <div class="day-tasks">${taskHtml}</div>
+        <div class="day-add" onclick="openTaskModal('${key}')">＋ 添加</div>
+      </div>`;
+    }).join("");
+  } catch (e) {
+    console.error("renderWeekly error:", e);
+    const grid = document.getElementById("week-grid");
+    if (grid) grid.innerHTML = `<div style="padding:40px;text-align:center;color:var(--gray-400)">周视图加载失败，请刷新页面重试</div>`;
+  }
 }
 
 // ===== 月历视图 =====
 function renderMonthly() {
-  const y = monthYear, m = monthMonth;
-  const label = `${y}年 ${m+1}月`;
-  document.getElementById("week-label").textContent = label;
+  try {
+    const y = monthYear, m = monthMonth;
+    const label = `${y}年 ${m+1}月`;
+    const weekLabel = document.getElementById("week-label");
+    if (weekLabel) weekLabel.textContent = label;
 
-  // 本月所有任务
-  const prefix = `${y}-${String(m+1).padStart(2,"0")}`;
-  const monthTasks = weeklyTasks.filter(t => t.date && t.date.startsWith(prefix));
-  renderWeeklySummary(monthTasks);
+    // 本月所有任务（兼容 date 带时间戳的情况）
+    const prefix = `${y}-${String(m+1).padStart(2,"0")}`;
+    const safeTasks = Array.isArray(weeklyTasks) ? weeklyTasks : [];
+    const monthTasks = safeTasks.filter(t => t && t.date && String(t.date).startsWith(prefix));
+    renderWeeklySummary(monthTasks);
 
-  // 计算月历格子
-  const firstDay = new Date(y, m, 1);
-  const lastDay = new Date(y, m+1, 0);
-  const today = dateKey(new Date());
-  // 周一为第一列
-  let startDow = firstDay.getDay(); // 0=周日
-  startDow = startDow === 0 ? 6 : startDow - 1; // 转换为周一=0
-  const totalCells = Math.ceil((startDow + lastDay.getDate()) / 7) * 7;
+    // 计算月历格子
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m+1, 0);
+    const today = dateKey(new Date());
+    let startDow = firstDay.getDay(); // 0=周日
+    startDow = startDow === 0 ? 6 : startDow - 1; // 转换为周一=0
+    const totalCells = Math.ceil((startDow + lastDay.getDate()) / 7) * 7;
 
-  let html = "";
-  for (let i = 0; i < totalCells; i++) {
-    const dayNum = i - startDow + 1;
-    const isCurrentMonth = dayNum >= 1 && dayNum <= lastDay.getDate();
-    const dateStr = isCurrentMonth
-      ? `${y}-${String(m+1).padStart(2,"0")}-${String(dayNum).padStart(2,"0")}`
-      : null;
-    const isToday = dateStr === today;
-    const dow = i % 7; // 0=周一 ... 6=周日
-    const isWeekend = dow >= 5;
-    const dayTasks = dateStr ? weeklyTasks.filter(t => t.date === dateStr).sort((a,b)=>(a.time||"").localeCompare(b.time||"")) : [];
-    const showMax = 3;
-    const tasksHtml = dayTasks.slice(0, showMax).map(t => `
-      <div class="mc-task ${t.priority} ${t.done ? "done" : ""}" title="${t.title}" onclick="toggleTask(${t.id})">
-        ${t.time ? `<b>${t.time}</b> ` : ""}${t.title}
-      </div>`).join("");
-    const moreHtml = dayTasks.length > showMax
-      ? `<div class="mc-more">+${dayTasks.length - showMax} 更多</div>`
-      : "";
-    const numStyle = isWeekend && !isToday ? "color:#ef4444" : "";
-    html += `<div class="mc-cell${!isCurrentMonth ? " other-month" : ""}${isToday ? " today-cell" : ""}">
-      <div class="mc-day-num" style="${numStyle}" ${dateStr ? `onclick="openTaskModal('${dateStr}')"` : ""}>${isCurrentMonth ? dayNum : ""}</div>
-      <div class="mc-tasks">${tasksHtml}${moreHtml}</div>
-      ${isCurrentMonth ? `<div class="mc-add" onclick="openTaskModal('${dateStr}')">＋</div>` : ""}
-    </div>`;
+    let html = "";
+    for (let i = 0; i < totalCells; i++) {
+      const dayNum = i - startDow + 1;
+      const isCurrentMonth = dayNum >= 1 && dayNum <= lastDay.getDate();
+      const dateStr = isCurrentMonth
+        ? `${y}-${String(m+1).padStart(2,"0")}-${String(dayNum).padStart(2,"0")}`
+        : null;
+      const isToday = dateStr === today;
+      const dow = i % 7; // 0=周一 ... 6=周日
+      const isWeekend = dow >= 5;
+      const dayTasks = dateStr ? safeTasks.filter(t => t && t.date === dateStr).sort((a,b) => String(a.time||"").localeCompare(b.time||"")) : [];
+      const showMax = 3;
+      const tasksHtml = dayTasks.slice(0, showMax).map(t => {
+        const safeTitle = (t.title || "").replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+        return `<div class="mc-task ${t.priority || 'p-mid'} ${t.done ? "done" : ""}" title="${safeTitle}" onclick="toggleTask(${t.id})">
+          ${t.time ? `<b>${t.time}</b> ` : ""}${safeTitle}
+        </div>`;
+      }).join("");
+      const moreHtml = dayTasks.length > showMax
+        ? `<div class="mc-more">+${dayTasks.length - showMax} 更多</div>`
+        : "";
+      const numStyle = isWeekend && !isToday ? "color:#ef4444" : "";
+      html += `<div class="mc-cell${!isCurrentMonth ? " other-month" : ""}${isToday ? " today-cell" : ""}">
+        <div class="mc-day-num" style="${numStyle}" ${dateStr ? `onclick="openTaskModal('${dateStr}')"` : ""}>${isCurrentMonth ? dayNum : ""}</div>
+        <div class="mc-tasks">${tasksHtml}${moreHtml}</div>
+        ${isCurrentMonth ? `<div class="mc-add" onclick="openTaskModal('${dateStr}')">＋</div>` : ""}
+      </div>`;
+    }
+    const monthGrid = document.getElementById("month-grid");
+    if (monthGrid) monthGrid.innerHTML = html;
+  } catch (e) {
+    console.error("renderMonthly error:", e);
+    const monthGrid = document.getElementById("month-grid");
+    if (monthGrid) monthGrid.innerHTML = `<div style="padding:40px;text-align:center;color:var(--gray-400)">月历加载失败，请刷新页面重试</div>`;
   }
-  document.getElementById("month-grid").innerHTML = html;
 }
 
 function renderWeeklySummary(tasks) {
