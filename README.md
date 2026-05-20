@@ -1,7 +1,1 @@
-# Project Dashboard
-
-金蝶云星空实施项目看板 · ERP Project Tracker
-
-在线访问：https://fengpeijun.github.io/project-dashboard/
-
-> 最近更新：2026-05-19
+# Project Dashboard\n\n金蝶云星空实施管理看板\n\n> Last rebuild: 2026-05-20T11:23:00
