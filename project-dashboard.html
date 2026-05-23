@@ -7,6 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <!-- 版本控制：每次部署时更新此值，CDN/浏览器将视为新资源 [rebuild:20260520] -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script>
     (function(){
       var VER = '2026052001';
@@ -140,6 +141,33 @@
       display: flex; align-items: center; gap: 6px;
     }
     .btn-add:hover { background: rgba(255,255,255,.28); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+    .btn-export, .btn-import {
+      background: rgba(255,255,255,.08);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 10px;
+      padding: 7px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex; align-items: center; gap: 5px;
+    }
+    .btn-export:hover, .btn-import:hover { background: rgba(255,255,255,.2); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+    .btn-import:disabled { opacity: .5; cursor: not-allowed; }
+    #import-file-input { display: none; }
+    #import-overlay { display: none; position: fixed; inset: 0; background: rgba(15,30,80,.45); backdrop-filter: blur(4px); z-index: 1001; align-items: center; justify-content: center; }
+    #import-overlay.show { display: flex; }
+    .import-modal {
+      background: #fff; border-radius: 18px; width: 480px; max-width: 95vw; padding: 28px 30px 24px;
+      box-shadow: 0 24px 80px rgba(0,0,0,.22); animation: modalIn .22s cubic-bezier(.34,1.56,.64,1);
+    }
+    .import-modal h3 { font-size: 16px; margin-bottom: 8px; }
+    .import-modal .import-status { font-size: 13px; color: var(--gray-500); margin-bottom: 16px; }
+    .import-bar { width: 100%; height: 6px; background: var(--gray-100); border-radius: 3px; margin-bottom: 16px; overflow: hidden; }
+    .import-bar-fill { height: 100%; background: linear-gradient(90deg, #0e9f6e, #10b981); border-radius: 3px; transition: width .3s; width: 0%; }
+    .import-modal .btn-cancel { margin-top: 4px; }
+    .import-log { max-height: 160px; overflow-y: auto; font-size: 12px; color: var(--gray-500); background: var(--gray-50); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; line-height: 1.7; font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace; }
 
     /* ===== TABS ===== */
     .tabs {
@@ -778,6 +806,9 @@
   </div>
   <div class="actions">
     <div class="today-chip" id="today-date"></div>
+    <button class="btn-export" onclick="exportBackup()" title="导出全部数据备份">📦 数据备份</button>
+    <button class="btn-import" onclick="triggerImport()" title="从备份文件恢复数据">📥 恢复数据</button>
+    <input type="file" id="import-file-input" accept=".zip" onchange="importBackup(this)" />
     <button class="btn-add" onclick="openModal()">＋ 新建项目</button>
   </div>
 </div>
@@ -1145,6 +1176,17 @@
       <button class="btn-cancel" onclick="closeModal()">取消</button>
       <button class="btn-primary" onclick="addProject()">保存项目</button>
     </div>
+  </div>
+</div>
+
+<!-- IMPORT OVERLAY -->
+<div id="import-overlay">
+  <div class="import-modal">
+    <h3>📥 正在恢复数据备份</h3>
+    <p class="import-status" id="import-status">准备中...</p>
+    <div class="import-bar"><div class="import-bar-fill" id="import-bar-fill"></div></div>
+    <div class="import-log" id="import-log"></div>
+    <button class="btn-cancel" onclick="cancelImport()" style="width:100%;text-align:center">取消恢复</button>
   </div>
 </div>
 
@@ -2112,6 +2154,198 @@ async function removeDoc(id, storagePath) {
     renderDocs();
   } catch(e) {
     showSync("error", "删除失败");
+    console.error(e);
+  }
+}
+
+// ===== BACKUP & RESTORE =====
+let _importCancel = false;
+
+function cancelImport() {
+  _importCancel = true;
+  document.getElementById("import-overlay").classList.remove("show");
+}
+
+function appendImportLog(msg) {
+  const el = document.getElementById("import-log");
+  if (!el) return;
+  el.textContent += msg + "\n";
+  el.scrollTop = el.scrollHeight;
+}
+
+function setImportProgress(pct, status) {
+  document.getElementById("import-bar-fill").style.width = pct + "%";
+  document.getElementById("import-status").textContent = status;
+}
+
+function triggerImport() {
+  _importCancel = false;
+  document.getElementById("import-log").textContent = "";
+  document.getElementById("import-bar-fill").style.width = "0%";
+  document.getElementById("import-status").textContent = "请选择备份 ZIP 文件...";
+  document.getElementById("import-overlay").classList.add("show");
+  document.getElementById("import-file-input").value = "";
+  document.getElementById("import-file-input").click();
+}
+
+async function exportBackup() {
+  showSync("syncing", "正在导出数据...");
+  try {
+    const zip = new JSZip();
+    const overview = { version: "1.0", projects: [], backup_time: new Date().toISOString(), backup_date: new Date().toLocaleDateString("zh-CN") };
+
+    for (const p of projects) {
+      const projDir = zip.folder(p.name);
+      // Collect project data
+      const tasks = weeklyTasks.filter(t => t.project_id === p.id);
+      const links = projectLinks.filter(l => l.project_id === p.id);
+      const files = uploadedFiles.filter(f => f.project_id === p.id);
+
+      const dataJson = {
+        project: p,
+        tasks: tasks,
+        links: links,
+        files: files.map(f => ({ id: f.id, filename: f.filename, storage_path: f.storage_path, mime_type: f.mime_type, size: f.size, created_at: f.created_at })),
+        backup_time: new Date().toISOString(),
+        backup_date: new Date().toLocaleDateString("zh-CN")
+      };
+      projDir.file("数据.json", JSON.stringify(dataJson, null, 2));
+
+      // Download file blobs from Supabase Storage
+      for (const f of files) {
+        try {
+          const url = SUPA_URL + "/storage/v1/object/public/project-files/" + f.storage_path;
+          const resp = await fetch(url);
+          if (resp.ok) {
+            const blob = await resp.blob();
+            projDir.file("files/" + f.filename, blob);
+          }
+        } catch(e) { console.warn("跳过文件:", f.filename, e); }
+      }
+      overview.projects.push({ name: p.name, id: p.id });
+    }
+
+    zip.file("备份总览.json", JSON.stringify(overview, null, 2));
+    const content = await zip.generateAsync({ type: "blob" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(content);
+    a.download = "项目看板备份_" + new Date().toISOString().slice(0,10) + ".zip";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showSync("", "导出完成");
+  } catch(e) {
+    showSync("error", "导出失败: " + e.message);
+    console.error(e);
+  }
+}
+
+async function importBackup(input) {
+  if (!input.files || !input.files[0]) return;
+  _importCancel = false;
+  document.getElementById("import-overlay").classList.add("show");
+  setImportProgress(0, "正在读取备份文件...");
+  appendImportLog("📂 读取 ZIP 文件...");
+
+  try {
+    const zip = await JSZip.loadAsync(input.files[0]);
+    const overviewFile = zip.file("备份总览.json");
+    if (!overviewFile) throw new Error("未找到备份总览.json，文件可能已损坏");
+
+    const overviewText = await overviewFile.async("text");
+    const overview = JSON.parse(overviewText);
+    const projList = overview.projects || [];
+    const total = projList.length;
+
+    if (total === 0) { setImportProgress(100, "备份中没有项目数据"); appendImportLog("⚠️ 备份为空"); return; }
+
+    if (!confirm(`即将恢复 ${total} 个项目及其关联数据，是否继续？\n（不会删除现有数据）`)) { cancelImport(); return; }
+
+    appendImportLog(`📋 共 ${total} 个项目待恢复`);
+
+    for (let i = 0; i < total; i++) {
+      if (_importCancel) { setImportProgress(100, "已取消"); appendImportLog("⏹ 恢复已取消"); return; }
+
+      const pInfo = projList[i];
+      const pct = Math.round((i / total) * 100);
+      setImportProgress(pct, `正在恢复: ${pInfo.name} (${i+1}/${total})`);
+      appendImportLog(`📦 [${i+1}/${total}] 恢复项目: ${pInfo.name}`);
+
+      const dataFile = zip.file(pInfo.name + "/数据.json");
+      if (!dataFile) { appendImportLog("  ⚠️ 未找到数据.json，跳过"); continue; }
+
+      const dataText = await dataFile.async("text");
+      const dataJson = JSON.parse(dataText);
+      const oldProj = dataJson.project;
+
+      // Create project
+      const newProj = await sbPost("projects", {
+        name: oldProj.name || pInfo.name,
+        customer: oldProj.customer || "",
+        status: oldProj.status || "planning",
+        stage: oldProj.stage || "",
+        manager: oldProj.manager || "",
+        start_date: oldProj.start_date || null,
+        end_date: oldProj.end_date || null,
+        go_live_date: oldProj.go_live_date || null,
+        progress: oldProj.progress || 0,
+        risk_level: oldProj.risk_level || "normal",
+        risk_note: oldProj.risk_note || "",
+        notes: oldProj.notes || ""
+      });
+      const newId = newProj[0].id;
+      appendImportLog("  ✅ 项目已创建 (id=" + newId + ")");
+
+      // Create tasks
+      const tasks = dataJson.tasks || [];
+      for (const t of tasks) {
+        if (_importCancel) break;
+        await sbPost("weekly_tasks", {
+          project_id: newId, week_start: t.week_start, week_end: t.week_end,
+          task: t.task, status: t.status || "todo", assignee: t.assignee || "", note: t.note || ""
+        });
+      }
+      if (tasks.length) appendImportLog("  ✅ 任务: " + tasks.length + " 条");
+
+      // Create links
+      const links = dataJson.links || [];
+      for (const l of links) {
+        if (_importCancel) break;
+        await sbPost("online_links", {
+          project_id: newId, title: l.title, url: l.url, category: l.category || "doc", note: l.note || ""
+        });
+      }
+      if (links.length) appendImportLog("  ✅ 链接: " + links.length + " 条");
+
+      // Create files
+      const files = dataJson.files || [];
+      for (const f of files) {
+        if (_importCancel) break;
+        const fileInZip = zip.file(pInfo.name + "/files/" + f.filename);
+        if (!fileInZip) { appendImportLog("  ⚠️ 文件缺失: " + f.filename); continue; }
+        try {
+          const blob = await fileInZip.async("blob");
+          const storagePath = newId + "/" + f.filename;
+          await uploadFileToStorage(storagePath, blob);
+          await sbPost("uploaded_files", {
+            project_id: newId, filename: f.filename, storage_path: storagePath,
+            mime_type: f.mime_type || "application/octet-stream", size: blob.size
+          });
+        } catch(e) { appendImportLog("  ⚠️ 上传失败: " + f.filename + " - " + e.message); }
+      }
+      if (files.length) appendImportLog("  ✅ 文件: " + files.length + " 个");
+
+      // Small delay between projects
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    setImportProgress(100, "恢复完成！正在重新加载看板...");
+    appendImportLog("🎉 数据恢复完成，重新加载看板中...");
+    await loadAll();
+    appendImportLog("✅ 看板已刷新");
+    setTimeout(() => { document.getElementById("import-overlay").classList.remove("show"); }, 2000);
+  } catch(e) {
+    setImportProgress(0, "恢复失败");
+    appendImportLog("❌ 错误: " + e.message);
     console.error(e);
   }
 }
